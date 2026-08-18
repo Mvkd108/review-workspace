@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.vite/
+coverage/
+*.log
+*.db
+*.db-shm
+*.db-wal
+.review-workspace/
+apps/web/public/workspace.schema.json
+apps/web/public/openapi.json

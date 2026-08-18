@@ -1,0 +1,29 @@
+{
+  "name": "@review-workspace/host",
+  "version": "0.1.0",
+  "description": "Local daemon and CLI for Review Workspace",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": { "review-workspace": "dist/cli.js" },
+  "main": "dist/cli.js",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "dev": "tsx watch src/cli.ts --data-dir ../../.review-workspace",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@review-workspace/adapter-api": "workspace:*",
+    "@review-workspace/schema": "workspace:*",
+    "chokidar": "^4.0.3",
+    "minimatch": "^10.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

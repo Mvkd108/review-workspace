@@ -1,0 +1,22 @@
+{
+  "name": "review-workspace-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local-first review workspace for coding-agent worktrees",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@11.20.0",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build": "pnpm --filter @review-workspace/schema build && pnpm --filter @review-workspace/adapter-api build && pnpm --filter @review-workspace/web build && pnpm --filter @review-workspace/host build",
+    "dev": "pnpm --parallel --filter @review-workspace/web --filter @review-workspace/host dev",
+    "start": "pnpm --filter @review-workspace/host start",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "context:check": "node scripts/check-context.mjs",
+    "context:check:strict": "node scripts/check-context.mjs --strict"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

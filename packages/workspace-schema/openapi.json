@@ -1,0 +1,20 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Review Workspace Local API",
+    "version": "0.1.0",
+    "license": { "name": "Apache-2.0" }
+  },
+  "servers": [{ "url": "http://127.0.0.1:4317/api/v1" }],
+  "paths": {
+    "/workspace": { "get": { "summary": "Read the current ordered workspace snapshot", "responses": { "200": { "description": "Workspace snapshot" } } } },
+    "/events": { "get": { "summary": "Subscribe to ordered workspace events over server-sent events", "responses": { "200": { "description": "Event stream" } } } },
+    "/work-units": { "post": { "summary": "Register an existing worktree", "responses": { "201": { "description": "Registered" } } } },
+    "/work-units/{id}": { "delete": { "summary": "Unregister a work unit without deleting its worktree", "responses": { "204": { "description": "Unregistered" } } } },
+    "/work-units/{id}/diff": { "get": { "summary": "Read the current unified diff", "responses": { "200": { "description": "Plain-text diff" } } } },
+    "/work-units/{id}/gates": { "post": { "summary": "Approve and store a host-owned gate definition", "responses": { "201": { "description": "Gate stored" } } } },
+    "/work-units/{id}/gates/{gateId}/run": { "post": { "summary": "Run a trusted gate", "responses": { "200": { "description": "Gate result" } } } },
+    "/work-units/{id}/gates/{gateId}": { "delete": { "summary": "Remove a host-owned trusted gate", "responses": { "204": { "description": "Gate removed" } } } },
+    "/work-units/{id}/reviewed": { "post": { "summary": "Mark changed files reviewed or unreviewed", "responses": { "200": { "description": "Updated workspace" } } } }
+  }
+}

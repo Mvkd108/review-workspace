@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://review-workspace.dev/schema/0.1.0/workspace.schema.json",
+  "title": "Review Workspace Snapshot",
+  "type": "object",
+  "required": ["schemaVersion", "seq", "generatedAt", "workUnits"],
+  "properties": {
+    "schemaVersion": { "const": "0.1.0" },
+    "seq": { "type": "integer", "minimum": 0 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "workUnits": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/workUnitView" }
+    }
+  },
+  "$defs": {
+    "workUnitView": {
+      "type": "object",
+      "required": ["workUnit", "change", "risk", "mergeReadiness", "gateDefinitions", "gateProposals", "gateRuns", "attention", "queueTier"],
+      "properties": {
+        "workUnit": { "$ref": "#/$defs/workUnit" },
+        "change": { "type": ["object", "null"] },
+        "risk": { "$ref": "#/$defs/risk" },
+        "mergeReadiness": { "type": "object" },
+        "gateDefinitions": { "type": "array" },
+        "gateProposals": { "type": "array" },
+        "gateRuns": { "type": "array" },
+        "attention": { "type": "array" },
+        "queueTier": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "workUnit": {
+      "type": "object",
+      "required": ["id", "kind", "task", "repositoryId", "repositoryRoot", "worktreePath", "branch", "baseRef", "lifecycle", "scope", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["unmanaged", "managed"] },
+        "task": { "type": "string", "minLength": 1 },
+        "agentLabel": { "enum": ["claude-code", "cursor", "codex", "other"] },
+        "agentDisplayName": { "type": "string" },
+        "repositoryId": { "type": "string" },
+        "repositoryRoot": { "type": "string" },
+        "worktreePath": { "type": "string" },
+        "branch": { "type": "string" },
+        "baseRef": { "type": "string" },
+        "lifecycle": { "enum": ["observing", "ready-for-review", "blocked", "unavailable"] },
+        "scope": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "risk": {
+      "type": "object",
+      "required": ["level", "reasons", "sortScore"],
+      "properties": {
+        "level": { "enum": ["low", "medium", "high"] },
+        "reasons": { "type": "array" },
+        "sortScore": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    }
+  }
+}
