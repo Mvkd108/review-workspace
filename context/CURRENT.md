@@ -3,8 +3,9 @@
 Last updated: 2026-08-18
 
 Phase 0a is implemented as a usable local review workspace. The canonical
-repository is being checkpointed to
-`https://github.com/Mvkd108/GenUI-Harness` before the usage test begins.
+repository is published on `main` at
+`https://github.com/Mvkd108/GenUI-Harness`; the initial source checkpoint is
+commit `bebd094`.
 
 ## Working behavior
 

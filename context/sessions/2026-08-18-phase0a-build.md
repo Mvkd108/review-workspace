@@ -70,3 +70,8 @@ schema contract test, and seven host tests passed. A Windows-only timing failure
 observed during the checkpoint run was corrected by guaranteeing service
 shutdown, retrying temporary-directory cleanup, and increasing the integration
 test timeout to 15 seconds; the complete test suite then passed.
+
+The initial source checkpoint was committed as `bebd094` with message
+`feat: build phase 0a review workspace` and pushed to `origin/main`. The remote
+is `https://github.com/Mvkd108/GenUI-Harness`, and the local `main` branch now
+tracks `origin/main`. The next action is the seven-day Phase 0a kill test.
