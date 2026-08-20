@@ -1,4 +1,4 @@
-export const WORKSPACE_SCHEMA_VERSION = '0.1.0' as const;
+export const WORKSPACE_SCHEMA_VERSION = '0.2.0' as const;
 
 export type WorkUnitKind = 'unmanaged' | 'managed';
 export type AgentLabel = 'claude-code' | 'cursor' | 'codex' | 'other';
@@ -6,6 +6,7 @@ export type WorkUnitLifecycle = 'observing' | 'ready-for-review' | 'blocked' | '
 export type RiskLevel = 'low' | 'medium' | 'high';
 export type MergeReadinessStatus = 'ready' | 'blocked' | 'unknown';
 export type GateRunStatus = 'running' | 'passed' | 'failed' | 'error' | 'stale';
+export type AgentActivityState = 'working' | 'idle' | 'stalled' | 'unknown';
 
 export interface TaskScope {
   allowedGlobs: string[];
@@ -28,6 +29,30 @@ export interface WorkUnit {
   scope: TaskScope;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * A single agent session observed through the agent's own transcript file.
+ * The workspace reads these records; it never launches or controls the agent.
+ */
+export interface AgentSession {
+  sessionId: string;
+  agentLabel: AgentLabel;
+  /** Working directory the session reported for itself. */
+  cwd: string;
+  /** Transcript the state was derived from. */
+  sourcePath: string;
+  state: AgentActivityState;
+  lastActivityAt: string;
+  /** False when the most recent turn has no completion record in the transcript. */
+  lastTurnComplete: boolean;
+}
+
+export interface AgentActivity {
+  state: AgentActivityState;
+  lastActivityAt?: string;
+  /** Sessions bound to this worktree, most recently active first. */
+  sessions: AgentSession[];
 }
 
 export type ChangeFileStatus = 'added' | 'modified' | 'deleted' | 'renamed' | 'copied' | 'untracked';
@@ -104,7 +129,7 @@ export interface RiskAssessment {
 export interface AttentionItem {
   id: string;
   workUnitId: string;
-  kind: 'merge-conflict' | 'gate-failed' | 'gate-stale' | 'scope' | 'risk' | 'ready-for-review' | 'unavailable';
+  kind: 'merge-conflict' | 'gate-failed' | 'gate-stale' | 'scope' | 'risk' | 'ready-for-review' | 'unavailable' | 'agent-working' | 'agent-stalled';
   severity: RiskLevel;
   title: string;
   detail: string;
@@ -118,6 +143,7 @@ export interface MergeReadiness {
 export interface WorkUnitView {
   workUnit: WorkUnit;
   change: ChangeSummary | null;
+  agentActivity: AgentActivity;
   risk: RiskAssessment;
   mergeReadiness: MergeReadiness;
   gateDefinitions: GateDefinition[];
