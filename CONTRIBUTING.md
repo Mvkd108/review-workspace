@@ -21,6 +21,11 @@ pnpm start -- --data-dir .review-workspace
 
 `pnpm dev` runs the host and the Vite dev server together with hot reload.
 
+The host imports runtime values from the library packages, and those resolve to
+their compiled output, so `pnpm test` builds `workspace-schema` and `adapter-api`
+first. That happens automatically — the commands above work on a fresh clone in
+the order shown.
+
 Tests use Vitest for the host and the web app, and `node --test` for the schema
 contract. The Git tests create real temporary repositories and shell out to real
 `git`; they are slower than unit tests and that is deliberate, because a mocked

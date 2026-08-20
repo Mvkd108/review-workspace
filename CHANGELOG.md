@@ -22,6 +22,13 @@ While the project is pre-1.0, minor versions may change the schema.
 - Published packages now expose generated declarations rather than TypeScript
   sources, and carry repository and homepage metadata.
 
+### Fixed
+
+- `pnpm test` failed on a clean clone. The host imports runtime values from
+  `workspace-schema`, which resolves to compiled output, so the suite could only
+  pass where a previous build had left `dist/` behind. The test script now builds
+  the library packages first. Found by the first CI run.
+
 ## [0.2.0] — 2026-08-20
 
 ### Added

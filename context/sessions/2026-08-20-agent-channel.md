@@ -107,8 +107,23 @@ database.
   Review Workspace. Renaming is the owner's call.
 - `CODE_OF_CONDUCT.md` carries a marked TODO for a private reporting contact. No
   address was invented.
-- CI was written but has never executed. The Linux leg in particular is
-  unverified, since everything here was run on Windows.
+## What the first CI run found
+
+Both legs failed, and the cause predated this session. `workspace-service.ts`
+imports `WORKSPACE_SCHEMA_VERSION`, a runtime value rather than a type, so Vitest
+resolves `@review-workspace/schema` to its compiled output. CI runs tests before
+the build, so `dist/` did not exist and two suites failed to resolve the package.
+Locally the suite had always passed because an earlier build had left `dist/`
+behind, which means `pnpm test` never worked on a clean clone. Adding a schema
+import to `cli-options.ts` for `--version` widened the failure from one suite to
+two but did not cause it.
+
+The root `test` script now builds the two library packages first. Verified by
+deleting every `dist/` directory and running the suite cold.
+
+This is the class of defect CI exists to catch, and it was caught on the first
+run. It also means the earlier verification claim of a passing suite was only
+true on a machine that had already built.
 
 ## Exact continuation point
 
