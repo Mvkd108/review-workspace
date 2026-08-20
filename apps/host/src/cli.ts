@@ -1,9 +1,12 @@
 #!/usr/bin/env node
+// Must stay first. Node loads builtin modules while linking the import graph,
+// before any user module evaluates, so the filter has to be installed before
+// anything reaching node:sqlite is imported. That is why the store, service, and
+// server below are loaded dynamically rather than at the top of this file: it
+// also means --help and --version never open a database at all.
+import './quiet-sqlite-warning.js';
 import { spawn } from 'node:child_process';
 import { parseArgs } from './cli-options.js';
-import { WorkspaceStore } from './store.js';
-import { WorkspaceService } from './workspace-service.js';
-import { startServer } from './server.js';
 
 function openBrowser(url: string): void {
   const command = process.platform === 'win32' ? 'cmd.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
@@ -13,6 +16,13 @@ function openBrowser(url: string): void {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+
+  const [{ WorkspaceStore }, { WorkspaceService }, { startServer }] = await Promise.all([
+    import('./store.js'),
+    import('./workspace-service.js'),
+    import('./server.js'),
+  ]);
+
   const service = new WorkspaceService(new WorkspaceStore(options.dataDirectory));
   await service.start();
   const server = await startServer(service, '127.0.0.1', options.port);

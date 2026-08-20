@@ -38,6 +38,42 @@ may change without altering the public workspace types.
 normalizes and hashes them but never executes them until explicit approval copies
 the exact definition into host-owned SQLite.
 
+## 2026-08-20 — Phase 0b started early by owner decision
+
+The plan gated Phase 0b behind a passing seven-day kill test and an AHP reducer
+spike. The owner chose to start the agent channel immediately instead, because
+the repo channel cannot answer whether an agent is still working, and that gap
+was blocking real use. Both gates are therefore unmet and remain unmet: the kill
+test has no recorded days and the AHP spike has not run.
+
+Record this rather than rewrite the plan. If the agent channel proves the wrong
+shape, the missing evidence is the reason, not a surprise.
+
+## 2026-08-20 — Observe agent transcripts, do not control agents
+
+The agent channel reads agent-owned transcript files and nothing else. It does
+not launch, steer, cancel, or hold a session. Codex writes `session_meta` with a
+`cwd` and brackets turns with `task_started` and `task_complete`; Claude Code
+records `cwd` per entry and ends a turn with an assistant `stop_reason` of
+`end_turn`. Both are read from the file tail, so cost does not grow with
+transcript length.
+
+This keeps Git authoritative. A transcript reports what an agent believes it is
+doing; only Git says what changed. Activity never feeds merge readiness.
+
+Cursor is deliberately unsupported: it stores chat in a VS Code SQLite database
+rather than transcript files. An empty agent panel says so instead of implying
+the agent is idle.
+
+## 2026-08-20 — A single unreadable path must not stop the host
+
+Registering a worktree containing a permission-locked directory killed the whole
+daemon: chokidar emitted an `error` event for an `EPERM` on `realpath`, and an
+unhandled `error` event is fatal in Node. The watcher now handles the event,
+reports each distinct failure once, and leaves that path to interval polling.
+Git inspection still covers it, so the work unit degrades rather than
+disappearing.
+
 ## 2026-08-18 — Built-in SQLite for the local proof
 
 Use Node's built-in synchronous SQLite API for the local single-operator daemon.

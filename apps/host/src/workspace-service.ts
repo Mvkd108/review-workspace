@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import type {
+  AgentActivity,
+  AgentSession,
   AttentionItem,
   GateDefinition,
   GateDefinitionInput,
@@ -17,6 +19,7 @@ import type {
   WorkspaceSnapshot,
 } from '@review-workspace/schema';
 import { WORKSPACE_SCHEMA_VERSION } from '@review-workspace/schema';
+import { AgentActivityObserver, summarize } from './agent-activity.js';
 import { sha256, stableJson } from './hash.js';
 import { GitCliRepositoryAdapter } from './git-adapter.js';
 import { LocalProcessGateProvider } from './gate-provider.js';
@@ -60,12 +63,25 @@ function mergeReadiness(
   return { status: 'ready', reasons: ['The branch is clean, conflict-free, ahead of base, and all required trusted gates passed.'] };
 }
 
+function describeAgents(sessions: readonly AgentSession[]): string {
+  const labels = [...new Set(sessions.map((session) => session.agentLabel))];
+  return labels.length > 0 ? labels.join(' and ') : 'An agent';
+}
+
 function attentionFor(view: Omit<WorkUnitView, 'attention' | 'queueTier'>, mergeConflict: boolean | null): AttentionItem[] {
   const items: AttentionItem[] = [];
   const add = (kind: AttentionItem['kind'], severity: AttentionItem['severity'], title: string, detail: string) => {
     items.push({ id: `${view.workUnit.id}:${kind}:${items.length}`, workUnitId: view.workUnit.id, kind, severity, title, detail });
   };
   if (!view.change) add('unavailable', 'high', 'Worktree unavailable', 'Git inspection failed for this registered path.');
+  const activity = view.agentActivity;
+  if (activity.state === 'working') {
+    const open = activity.sessions.filter((session) => !session.lastTurnComplete);
+    add('agent-working', 'low', 'Agent still working', `${describeAgents(open)} has an open turn here. Review may be premature.`);
+  } else if (activity.state === 'stalled') {
+    const open = activity.sessions.filter((session) => !session.lastTurnComplete);
+    add('agent-stalled', 'medium', 'Agent stopped mid-turn', `${describeAgents(open)} started a turn and stopped writing. It may have been interrupted, or be inside a long tool call.`);
+  }
   if (mergeConflict === true) add('merge-conflict', 'high', 'Resolve merge conflict', 'The clean branch does not merge into the configured base ref.');
   for (const reason of view.risk.reasons) {
     if (reason.code.startsWith('gate.failed')) add('gate-failed', 'high', reason.label, reason.detail);
@@ -78,6 +94,9 @@ function attentionFor(view: Omit<WorkUnitView, 'attention' | 'queueTier'>, merge
 
 function queueTier(view: Omit<WorkUnitView, 'attention' | 'queueTier'>, mergeConflict: boolean | null): number {
   if (!view.change || mergeConflict === true || view.risk.reasons.some((item) => item.code.startsWith('gate.failed'))) return 0;
+  // An agent that stopped mid-turn needs a look; one still writing does not yet.
+  if (view.agentActivity.state === 'stalled') return 1;
+  if (view.agentActivity.state === 'working') return 4;
   if (view.risk.level === 'high') return 1;
   if (view.change.files.length > 0) return 2;
   return 3;
@@ -86,12 +105,15 @@ function queueTier(view: Omit<WorkUnitView, 'attention' | 'queueTier'>, mergeCon
 export class WorkspaceService {
   private readonly git = new GitCliRepositoryAdapter();
   private readonly gates = new LocalProcessGateProvider();
+  private readonly agents = new AgentActivityObserver();
   private readonly subscribers = new Set<Subscriber>();
   private snapshot: WorkspaceSnapshot = { schemaVersion: WORKSPACE_SCHEMA_VERSION, seq: 0, generatedAt: new Date().toISOString(), workUnits: [] };
   private watcher: FSWatcher | undefined;
   private interval: NodeJS.Timeout | undefined;
   private debounce: NodeJS.Timeout | undefined;
   private refreshing: Promise<WorkspaceSnapshot> | undefined;
+  /** Paths the watcher refused, reported once each instead of crashing the host. */
+  private readonly watchFailures = new Set<string>();
 
   constructor(readonly store: WorkspaceStore) {}
 
@@ -112,6 +134,16 @@ export class WorkspaceService {
       awaitWriteFinish: { stabilityThreshold: 350, pollInterval: 100 },
     });
     this.watcher.on('all', () => this.scheduleRefresh());
+    // One unreadable path must not take the host down with it. Windows raises EPERM
+    // on realpath for locked directories, and chokidar surfaces that as an error
+    // event that would otherwise go unhandled and kill the process. Git inspection
+    // still covers the worktree; only change notifications are lost for that path.
+    this.watcher.on('error', (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (this.watchFailures.has(message)) return;
+      this.watchFailures.add(message);
+      process.stderr.write(`Watch degraded to polling for one path: ${message}\n`);
+    });
     this.interval = setInterval(() => void this.refresh(), 15_000);
     this.interval.unref();
     await this.refresh();
@@ -234,8 +266,19 @@ export class WorkspaceService {
     return this.refreshing;
   }
 
+  /** Agent observation is advisory; a failure here must not break the repo channel. */
+  private async collectAgentSessions(): Promise<AgentSession[]> {
+    try {
+      return await this.agents.collect();
+    } catch {
+      return [];
+    }
+  }
+
   private async performRefresh(): Promise<WorkspaceSnapshot> {
-    const views = await Promise.all(this.store.listWorkUnits().map((unit) => this.buildView(unit)));
+    const units = this.store.listWorkUnits();
+    const byWorktree = this.agents.index(await this.collectAgentSessions(), units.map((unit) => unit.worktreePath));
+    const views = await Promise.all(units.map((unit) => this.buildView(unit, summarize(byWorktree.get(unit.worktreePath) ?? []))));
     views.sort((a, b) => a.queueTier - b.queueTier || b.risk.sortScore - a.risk.sortScore || Date.parse(a.workUnit.createdAt) - Date.parse(b.workUnit.createdAt));
     if (stableJson(views) === stableJson(this.snapshot.workUnits)) return this.snapshot;
     this.snapshot = {
@@ -249,7 +292,7 @@ export class WorkspaceService {
     return this.snapshot;
   }
 
-  private async buildView(unit: WorkUnit): Promise<WorkUnitView> {
+  private async buildView(unit: WorkUnit, agentActivity: AgentActivity): Promise<WorkUnitView> {
     try {
       const inspected = await this.git.inspect(unit, this.store.reviewedFiles(unit.id));
       const gateDefinitions = this.store.listGateDefinitions(unit.repositoryId);
@@ -279,7 +322,7 @@ export class WorkspaceService {
         updatedAt: inspected.change.lastChangedAt,
       };
       this.store.saveWorkUnit(nextUnit);
-      const partial = { workUnit: nextUnit, change: inspected.change, risk, mergeReadiness: readiness, gateDefinitions, gateProposals, gateRuns: visibleRuns };
+      const partial = { workUnit: nextUnit, change: inspected.change, agentActivity, risk, mergeReadiness: readiness, gateDefinitions, gateProposals, gateRuns: visibleRuns };
       return { ...partial, attention: attentionFor(partial, inspected.mergeConflict), queueTier: queueTier(partial, inspected.mergeConflict) };
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -287,6 +330,7 @@ export class WorkspaceService {
       const partial = {
         workUnit: unavailable,
         change: null,
+        agentActivity,
         risk: { level: 'high' as const, sortScore: 100, reasons: [{ code: 'worktree.unavailable', label: 'Worktree unavailable', detail, weight: 100 }] },
         mergeReadiness: { status: 'unknown' as const, reasons: [detail] },
         gateDefinitions: this.store.listGateDefinitions(unit.repositoryId),

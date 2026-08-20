@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import type { AgentLabel, GateDefinitionInput, WorkUnitRegistration, WorkUnitView, WorkspaceSnapshot } from '@review-workspace/schema';
+import type { AgentActivity, AgentActivityState, AgentLabel, GateDefinitionInput, WorkUnitRegistration, WorkUnitView, WorkspaceSnapshot } from '@review-workspace/schema';
 import { api } from './api';
 
-const EMPTY: WorkspaceSnapshot = { schemaVersion: '0.1.0', seq: 0, generatedAt: new Date(0).toISOString(), workUnits: [] };
+const EMPTY: WorkspaceSnapshot = { schemaVersion: '0.2.0', seq: 0, generatedAt: new Date(0).toISOString(), workUnits: [] };
 
 function relativeTime(iso: string): string {
   const seconds = Math.round((Date.now() - Date.parse(iso)) / 1000);
@@ -12,7 +12,7 @@ function relativeTime(iso: string): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-function Icon({ name }: { name: 'branch' | 'check' | 'warning' | 'plus' | 'refresh' | 'file' | 'gate' | 'close' }) {
+function Icon({ name }: { name: 'branch' | 'check' | 'warning' | 'plus' | 'refresh' | 'file' | 'gate' | 'close' | 'agent' }) {
   const paths = {
     branch: <><circle cx="6" cy="5" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M8 9h5a5 5 0 0 0 5-1"/></>,
     check: <path d="m5 12 4 4L19 6"/>,
@@ -22,6 +22,7 @@ function Icon({ name }: { name: 'branch' | 'check' | 'warning' | 'plus' | 'refre
     file: <><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5"/></>,
     gate: <><path d="M4 20V5l8-3 8 3v15"/><path d="M8 20v-8h8v8"/></>,
     close: <path d="m6 6 12 12M18 6 6 18"/>,
+    agent: <><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 14h.01M15 14h.01"/></>,
   };
   return <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{paths[name]}</svg>;
 }
@@ -29,6 +30,29 @@ function Icon({ name }: { name: 'branch' | 'check' | 'warning' | 'plus' | 'refre
 function StatusPill({ view }: { view: WorkUnitView }) {
   const status = view.mergeReadiness.status;
   return <span className={`pill pill-${status}`}>{status === 'ready' ? 'Merge ready' : status === 'blocked' ? 'Blocked' : 'Needs evidence'}</span>;
+}
+
+const ACTIVITY_COPY: Record<AgentActivityState, string> = {
+  working: 'Agent working',
+  stalled: 'Stopped mid-turn',
+  idle: 'Agent idle',
+  unknown: 'No agent seen',
+};
+
+/**
+ * Reported by the agent's own transcript, so it is absent for tools that do not
+ * write one. It says nothing about whether the change is correct.
+ */
+function AgentPill({ activity }: { activity: AgentActivity }) {
+  if (activity.state === 'unknown') return null;
+  const agents = [...new Set(activity.sessions.map((session) => session.agentLabel))].join(', ');
+  const seen = activity.lastActivityAt ? ` · last wrote ${relativeTime(activity.lastActivityAt)}` : '';
+  return (
+    <span className={`agent-pill agent-${activity.state}`} title={`${agents}${seen}`}>
+      <span className="agent-dot" />
+      {ACTIVITY_COPY[activity.state]}
+    </span>
+  );
 }
 
 function QueueCard({ view, selected, onClick }: { view: WorkUnitView; selected: boolean; onClick: () => void }) {
@@ -44,6 +68,7 @@ function QueueCard({ view, selected, onClick }: { view: WorkUnitView; selected: 
       <div className="branch-line"><Icon name="branch" /><span>{view.workUnit.branch}</span></div>
       <div className="queue-meta">
         <StatusPill view={view} />
+        <AgentPill activity={view.agentActivity} />
         <span>{changed} file{changed === 1 ? '' : 's'}</span>
         {view.gateDefinitions.length > 0 && <span>{view.gateDefinitions.length} gate{view.gateDefinitions.length === 1 ? '' : 's'}</span>}
       </div>
@@ -114,7 +139,7 @@ function GateForm({ view, onDone }: { view: WorkUnitView; onDone: () => Promise<
   }
   if (!open) return <button className="text-button" onClick={() => setOpen(true)}><Icon name="plus" />Add trusted gate</button>;
   return <form className="inline-gate-form" onSubmit={submit}>
-    <div className="field-row"><label>Name<input name="name" required placeholder="Unit tests" /></label><label>Executable<input name="program" required placeholder="pnpm.cmd" /></label></div>
+    <div className="field-row"><label>Name<input name="name" required placeholder="Unit tests" /></label><label>Executable<input name="program" required placeholder={navigator.platform.startsWith('Win') ? 'pnpm.cmd' : 'pnpm'} /></label></div>
     <label>Arguments <small>One argument per line</small><textarea name="args" rows={3} placeholder={'test\n--runInBand'} /></label>
     <div className="field-row"><label>Working directory<input name="cwd" placeholder="." /></label><label>Timeout (ms)<input name="timeoutMs" type="number" defaultValue="600000" min="1000" /></label></div>
     <label className="check-label"><input name="required" type="checkbox" defaultChecked />Required for merge readiness</label>
@@ -142,7 +167,7 @@ function Detail({ view, onRefresh, onUnregister }: { view: WorkUnitView; onRefre
   return <main className="detail-pane">
     <header className="detail-header">
       <div><p className="eyebrow">{view.workUnit.agentDisplayName || view.workUnit.agentLabel || 'Unmanaged worktree'}</p><h1>{view.workUnit.task}</h1><div className="detail-sub"><span><Icon name="branch" />{view.workUnit.branch}</span><span>against {view.workUnit.baseRef}</span><span>{view.workUnit.worktreePath}</span></div></div>
-      <div className="detail-status"><StatusPill view={view} /><button className="kebab" onClick={unregister}>Unregister</button></div>
+      <div className="detail-status"><AgentPill activity={view.agentActivity} /><StatusPill view={view} /><button className="kebab" onClick={unregister}>Unregister</button></div>
     </header>
     <nav className="tabs"><button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Review</button><button className={tab === 'diff' ? 'active' : ''} onClick={() => setTab('diff')}>Unified diff</button></nav>
     {tab === 'diff' ? <DiffView diff={diff} /> : <div className="detail-content">
@@ -151,6 +176,17 @@ function Detail({ view, onRefresh, onUnregister }: { view: WorkUnitView; onRefre
           {view.risk.reasons.length ? <ul className="reason-list">{view.risk.reasons.map((item) => <li key={item.code}><strong>{item.label}</strong><span>{item.detail}</span></li>)}</ul> : <div className="positive"><Icon name="check" /><span>No elevated risk reasons detected.</span></div>}
         </article>
         <article className="panel readiness-panel"><div className="panel-title"><span><Icon name={view.mergeReadiness.status === 'ready' ? 'check' : 'branch'} />Merge readiness</span><StatusPill view={view} /></div><ul className="plain-list">{view.mergeReadiness.reasons.map((item) => <li key={item}>{item}</li>)}</ul></article>
+      </section>
+      <section className="panel agent-panel"><div className="panel-title"><span><Icon name="agent" />Agent activity</span><AgentPill activity={view.agentActivity} /></div>
+        {view.agentActivity.sessions.length === 0
+          ? <div className="soft-empty compact">No agent transcript reports this worktree. Codex and Claude Code are observed; Cursor does not write one.</div>
+          : <ul className="session-list">{view.agentActivity.sessions.map((session) => <li key={session.sourcePath}>
+              <span className={`agent-dot agent-${session.state}`} />
+              <strong>{session.agentLabel}</strong>
+              <span className="session-state">{session.lastTurnComplete ? 'turn complete' : 'turn open'}</span>
+              <span className="muted-copy">wrote {relativeTime(session.lastActivityAt)}</span>
+              <code title={session.sourcePath}>{session.sessionId.slice(0, 8)}</code>
+            </li>)}</ul>}
       </section>
       <section className="panel changes-panel"><div className="panel-title"><span><Icon name="file" />Changed files</span><span className="muted-copy">{view.change?.additions ?? 0} additions · {view.change?.deletions ?? 0} deletions</span></div>
         {!view.change?.files.length ? <div className="soft-empty compact">No changes against the base reference.</div> : <div className="file-list">{view.change.files.map((file) => <label className="file-row" key={file.path}><input type="checkbox" checked={file.reviewed} onChange={(event) => void api.setReviewed(view.workUnit.id, [file.path], event.target.checked).then(onRefresh)} /><span className={`file-status status-${file.status}`}>{file.status[0]?.toUpperCase()}</span><span className="file-path">{file.path}</span>{file.previousPath && <span className="previous-path">from {file.previousPath}</span>}<span className="diff-stat"><b>+{file.additions}</b><i>-{file.deletions}</i></span></label>)}</div>}

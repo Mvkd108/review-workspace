@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://review-workspace.dev/schema/0.1.0/workspace.schema.json",
+  "$id": "https://review-workspace.dev/schema/0.2.0/workspace.schema.json",
   "title": "Review Workspace Snapshot",
   "type": "object",
   "required": ["schemaVersion", "seq", "generatedAt", "workUnits"],
   "properties": {
-    "schemaVersion": { "const": "0.1.0" },
+    "schemaVersion": { "const": "0.2.0" },
     "seq": { "type": "integer", "minimum": 0 },
     "generatedAt": { "type": "string", "format": "date-time" },
     "workUnits": {
@@ -16,10 +16,11 @@
   "$defs": {
     "workUnitView": {
       "type": "object",
-      "required": ["workUnit", "change", "risk", "mergeReadiness", "gateDefinitions", "gateProposals", "gateRuns", "attention", "queueTier"],
+      "required": ["workUnit", "change", "agentActivity", "risk", "mergeReadiness", "gateDefinitions", "gateProposals", "gateRuns", "attention", "queueTier"],
       "properties": {
         "workUnit": { "$ref": "#/$defs/workUnit" },
         "change": { "type": ["object", "null"] },
+        "agentActivity": { "$ref": "#/$defs/agentActivity" },
         "risk": { "$ref": "#/$defs/risk" },
         "mergeReadiness": { "type": "object" },
         "gateDefinitions": { "type": "array" },
@@ -48,6 +49,33 @@
         "scope": { "type": "object" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "agentActivity": {
+      "type": "object",
+      "required": ["state", "sessions"],
+      "properties": {
+        "state": { "enum": ["working", "idle", "stalled", "unknown"] },
+        "lastActivityAt": { "type": "string", "format": "date-time" },
+        "sessions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/agentSession" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "agentSession": {
+      "type": "object",
+      "required": ["sessionId", "agentLabel", "cwd", "sourcePath", "state", "lastActivityAt", "lastTurnComplete"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "agentLabel": { "enum": ["claude-code", "cursor", "codex", "other"] },
+        "cwd": { "type": "string" },
+        "sourcePath": { "type": "string" },
+        "state": { "enum": ["working", "idle", "stalled", "unknown"] },
+        "lastActivityAt": { "type": "string", "format": "date-time" },
+        "lastTurnComplete": { "type": "boolean" }
       },
       "additionalProperties": false
     },

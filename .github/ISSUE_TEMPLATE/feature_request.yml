@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest something the workspace should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `context/PRODUCT.md` lists what is deliberately out of scope, and
+        `context/NEXT.md` lists what is already planned. A quick look there may
+        answer this faster than an issue.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What review situation is badly served today? Describe the situation
+        rather than the feature, so the solution stays open.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints this respects
+      description: >
+        These are load-bearing design constraints. A proposal that breaks one
+        needs to argue for it, which is fine — say so below.
+      options:
+        - label: Git and gate results stay authoritative for merge claims.
+        - label: The workspace observes agents rather than controlling them.
+        - label: No numeric risk score is exposed to the interface.
+        - label: No registered worktree is deleted or mutated implicitly.
+
+  - type: textarea
+    id: tradeoff
+    attributes:
+      label: If it breaks one of those, why is it worth it?
