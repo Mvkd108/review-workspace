@@ -66,6 +66,50 @@ worktrees, six further standalone repositories, and this repository. Two
 detached-HEAD worktrees under a Claude Code temporary scratchpad were
 deliberately excluded. Names are omitted because this repository is public.
 
+## Open-source release preparation
+
+After the agent channel landed, the owner asked for whatever was needed to make
+this a finished open-source tool. Added in a second commit:
+
+- README rewritten around both channels, the requirements, the gate trust model,
+  and an honest project-status section. It previously described Phase 0a only.
+- `SECURITY.md` with a real threat model. The two surfaces that matter are gate
+  execution and transcript reading, because transcripts can contain secrets a
+  user pasted into a chat. In-scope and out-of-scope lists are explicit.
+- `CONTRIBUTING.md` covering the development loop, the module map, the `context/`
+  convention, the load-bearing design constraints, and how to add a reader for
+  another agent's transcripts.
+- `CODE_OF_CONDUCT.md`, `CHANGELOG.md`, `.editorconfig`, issue forms, a pull
+  request template, and a security contact link.
+- CI on Linux and Windows: typecheck, tests, build, strict context check. Both
+  platforms are covered because the host shells out to Git and touches the
+  filesystem, where behaviour genuinely differs.
+- Publish metadata on every package. `publishConfig` overrides `types` and
+  `exports` to generated declarations at publish time while workspace consumers
+  keep typechecking against source, so the development loop still needs no build.
+- `--version`, expanded `--help`, and a clearer unknown-option error.
+
+## Node warning removed from the CLI
+
+`node:sqlite` made Node print an experimental warning on every invocation,
+including `--help`. Filtering `process.emitWarning` from the top of `cli.ts` did
+not work: Node loads builtin modules while linking the import graph, before any
+user module evaluates. The filter now lives in `quiet-sqlite-warning.ts`,
+imported first, and the store, service, and server are imported dynamically
+inside `main`. A side benefit is that `--help` and `--version` no longer open a
+database.
+
+## Deliberately not done
+
+- The npm scope is unreserved and nothing is published. Reserving a name is an
+  account action for the owner.
+- The GitHub repository is still named `GenUI-Harness` while the tool is called
+  Review Workspace. Renaming is the owner's call.
+- `CODE_OF_CONDUCT.md` carries a marked TODO for a private reporting contact. No
+  address was invented.
+- CI was written but has never executed. The Linux leg in particular is
+  unverified, since everything here was run on Windows.
+
 ## Exact continuation point
 
 Use the agent channel during ordinary work and record where the reported state

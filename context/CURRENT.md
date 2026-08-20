@@ -41,6 +41,12 @@ reducer spike has not run.
 - A worktree whose agent is mid-turn drops to the bottom of the queue; one whose
   agent stopped mid-turn is raised. Activity never affects merge readiness.
 - The watcher survives an unreadable path instead of taking the host down.
+- Open-source project surface: README covering both channels, a security policy
+  with a threat model, contributing guide, code of conduct, changelog, issue and
+  pull request templates, and CI running typecheck, tests, build, and the strict
+  context check on Linux and Windows.
+- `--version` and full `--help` on the CLI, both of which run without opening a
+  database.
 
 ## Verification evidence
 
@@ -101,8 +107,14 @@ worktrees. Gate arguments are entered one argument per line.
   running.
 - Starting the host against eighteen worktrees takes roughly forty seconds of
   CPU before the first snapshot, dominated by Git inspection of large diffs.
-- SQLite still emits Node's experimental-feature warning in Node 24.
+- Node's `node:sqlite` experimental warning is filtered in the CLI. It is
+  emitted while the import graph links, before user code runs, so the store,
+  service, and server are imported dynamically after the filter is installed.
+  Anything that imports the store directly will still see the warning.
 - Risk scope matching is deterministic and intentionally conservative; record
   false positives rather than adding model judgment during Phase 0a.
 - Automatic post-turn gates do not exist without the managed-agent channel.
-- The CLI is npx-ready in shape but no package name has been reserved or published.
+- The CLI is npx-ready in shape and now carries publish metadata, but the
+  `@review-workspace` npm scope has not been reserved and nothing is published.
+  The GitHub repository is still named `GenUI-Harness`, which does not match the
+  tool's name; that will hurt discoverability if it is announced as-is.

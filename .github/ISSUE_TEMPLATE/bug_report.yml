@@ -1,0 +1,75 @@
+name: Bug report
+description: Something behaved differently than it should have
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report security vulnerabilities here — use the Security
+        tab's private reporting instead. See SECURITY.md.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, and what did you see?
+      placeholder: I registered a worktree and the queue showed...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Repo channel (Git inspection, diffs, merge readiness)
+        - Agent channel (whether an agent is working)
+        - Trusted gates
+        - Queue ranking or risk reasons
+        - Web client
+        - CLI or daemon startup
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >
+        For a wrong merge or risk claim, the output of the matching Git command
+        is the most useful thing you can include. For agent state, which agent
+        and whether it was mid-turn.
+      render: shell
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Node version
+      placeholder: Windows 11, Node 24.13.0
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: transcripts
+    attributes:
+      label: Before you post
+      options:
+        - label: >
+            I have not pasted agent transcript content, credentials, or private
+            repository paths into this report.
+          required: true

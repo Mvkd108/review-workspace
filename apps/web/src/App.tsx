@@ -139,7 +139,7 @@ function GateForm({ view, onDone }: { view: WorkUnitView; onDone: () => Promise<
   }
   if (!open) return <button className="text-button" onClick={() => setOpen(true)}><Icon name="plus" />Add trusted gate</button>;
   return <form className="inline-gate-form" onSubmit={submit}>
-    <div className="field-row"><label>Name<input name="name" required placeholder="Unit tests" /></label><label>Executable<input name="program" required placeholder="pnpm.cmd" /></label></div>
+    <div className="field-row"><label>Name<input name="name" required placeholder="Unit tests" /></label><label>Executable<input name="program" required placeholder={navigator.platform.startsWith('Win') ? 'pnpm.cmd' : 'pnpm'} /></label></div>
     <label>Arguments <small>One argument per line</small><textarea name="args" rows={3} placeholder={'test\n--runInBand'} /></label>
     <div className="field-row"><label>Working directory<input name="cwd" placeholder="." /></label><label>Timeout (ms)<input name="timeoutMs" type="number" defaultValue="600000" min="1000" /></label></div>
     <label className="check-label"><input name="required" type="checkbox" defaultChecked />Required for merge readiness</label>
