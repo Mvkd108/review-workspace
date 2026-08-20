@@ -28,6 +28,11 @@ While the project is pre-1.0, minor versions may change the schema.
   `workspace-schema`, which resolves to compiled output, so the suite could only
   pass where a previous build had left `dist/` behind. The test script now builds
   the library packages first. Found by the first CI run.
+- The CLI options test asserted a hardcoded Windows path, so it failed anywhere
+  else: `C:\workspace` is not absolute on POSIX, and `path.resolve` therefore
+  prefixed the runner's working directory. The suite now derives an absolute path
+  for the current platform. Parser behaviour was correct throughout; only the
+  test was wrong. Found by the first CI run on Linux.
 
 ## [0.2.0] — 2026-08-20
 

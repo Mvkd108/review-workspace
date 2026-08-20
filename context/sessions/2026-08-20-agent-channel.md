@@ -125,6 +125,19 @@ This is the class of defect CI exists to catch, and it was caught on the first
 run. It also means the earlier verification claim of a passing suite was only
 true on a machine that had already built.
 
+The second run passed on Windows and failed on Linux, exposing a second
+pre-existing defect. `cli-options.test.ts` asserted the literal string
+`C:\workspace\.review-data`. That path is not absolute on POSIX, so
+`path.resolve` prefixed the runner's working directory and the assertion
+described the runner rather than the parser. The parser was correct the whole
+time. The suite now derives an absolute path for the current platform, and the
+CLI tests were widened from one case to six covering defaults, relative
+resolution, port validation, the refusal of `--lan`, and the unknown-option
+message.
+
+Both defects were invisible on the development machine. Neither would have been
+found without running on a second platform from a clean checkout.
+
 ## Exact continuation point
 
 Use the agent channel during ordinary work and record where the reported state
