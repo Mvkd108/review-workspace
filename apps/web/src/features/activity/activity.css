@@ -1,0 +1,22 @@
+/* Agent activity, reported by agent-owned transcripts. */
+.agent-pill { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; padding: 4px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; }
+.agent-pill .agent-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.agent-pill.agent-working { color: var(--blue); background: var(--blue-soft); }
+.agent-pill.agent-stalled { color: var(--amber); background: var(--amber-soft); }
+.agent-pill.agent-idle { color: var(--muted); background: var(--canvas); box-shadow: inset 0 0 0 1px var(--line); }
+.agent-pill.agent-unknown { color: var(--faint); background: var(--canvas); box-shadow: inset 0 0 0 1px var(--line); }
+.agent-pill.agent-unknown .agent-dot { background: transparent; box-shadow: inset 0 0 0 1px var(--faint); }
+.agent-pill.agent-working .agent-dot { animation: agent-pulse 1.6s ease-in-out infinite; }
+@keyframes agent-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .agent-pill.agent-working .agent-dot { animation: none; } }
+
+.session-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.session-list li { display: flex; align-items: center; gap: 9px; font-size: 11px; }
+.session-list .agent-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.session-list .agent-dot.agent-working { background: var(--blue); }
+.session-list .agent-dot.agent-stalled { background: var(--amber); }
+.session-list .agent-dot.agent-idle { background: var(--faint); }
+.session-list strong { text-transform: capitalize; }
+.session-state { color: var(--muted); }
+.session-list code { margin-left: auto; color: var(--faint); font-family: 'DM Mono', monospace; font-size: 10px; }
+.agent-advice { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; line-height: 1.5; }

@@ -111,6 +111,14 @@ function attentionFor(view: Omit<WorkUnitView, 'attention' | 'queueTier'>, merge
   return items;
 }
 
+/** Normalize a client-supplied file path for the per-file diff endpoint, or null when unsafe. */
+function normalizeReviewPath(filePath: string): string | null {
+  if (path.isAbsolute(filePath)) return null;
+  const normalized = filePath.replaceAll('\\', '/').replace(/^\.\//, '');
+  if (!normalized || normalized === '.' || normalized.split('/').includes('..')) return null;
+  return normalized;
+}
+
 function queueTier(view: Omit<WorkUnitView, 'attention' | 'queueTier'>, mergeConflict: boolean | null): number {
   if (!view.change || mergeConflict === true || view.risk.reasons.some((item) => item.code.startsWith('gate.failed'))) return 0;
   // An agent that stopped mid-turn needs a look; one still writing does not yet.
@@ -403,14 +411,35 @@ export class WorkspaceService {
 
   async setReviewed(workUnitId: string, input: ReviewedFilesInput): Promise<void> {
     const unit = this.requireUnit(workUnitId);
-    this.store.setFilesReviewed(workUnitId, input.files, input.reviewed);
+    const hashes = this.inspections.get(unit.id)?.fileHashes;
+    const files = input.files.map((filePath) => ({ path: filePath, contentHash: hashes?.get(filePath) ?? '' }));
+    this.store.setFilesReviewed(workUnitId, files, input.reviewed);
     await this.refresh({ worktreePaths: [unit.worktreePath] });
   }
 
   async diff(workUnitId: string): Promise<string> {
     const unit = this.requireUnit(workUnitId);
-    await this.git.inspect(unit, this.store.reviewedFiles(unit.id));
+    if (!this.views.has(unit.id)) await this.git.inspect(unit, this.store.reviewedFiles(unit.id));
     return this.git.getCachedDiff(workUnitId) ?? '';
+  }
+
+  /**
+   * Per-file diff for a single changed file. The requested path must be a
+   * member of the work unit's change set; it is never used to touch the
+   * filesystem, so traversal is impossible even for malformed input.
+   */
+  async fileDiff(workUnitId: string, filePath: string): Promise<string | null> {
+    const unit = this.requireUnit(workUnitId);
+    const normalized = normalizeReviewPath(filePath);
+    if (normalized === null) return null;
+    const files = this.views.get(unit.id)?.change?.files;
+    if (files) {
+      if (!files.some((file) => file.path === normalized)) return null;
+    } else {
+      const inspected = await this.git.inspect(unit, this.store.reviewedFiles(unit.id));
+      if (!inspected.change.files.some((file) => file.path === normalized)) return null;
+    }
+    return this.git.diffForFile(workUnitId, normalized) ?? null;
   }
 
   /**
@@ -516,6 +545,8 @@ export class WorkspaceService {
       const activity = summarize(byWorktree.get(unit.worktreePath) ?? []);
       try {
         const inspection = await this.git.inspect(unit, this.store.reviewedFiles(unit.id));
+        // A reviewed marker is only valid while the patch it reviewed is unchanged.
+        this.store.reconcileReviewedHashes(unit.id, inspection.fileHashes ?? new Map(), inspection.change.files.map((file) => file.path));
         this.inspections.set(unit.id, inspection);
         this.inspectionFailures.delete(unit.worktreePath);
         this.watchFailures.delete(unit.worktreePath);
@@ -548,34 +579,38 @@ export class WorkspaceService {
   }
 
   private async buildView(unit: WorkUnit, inspected: RepositoryInspection, agentActivity: AgentActivity): Promise<WorkUnitView> {
+    // The store is the source of truth for reviewed markers; inspection flags
+    // may predate a reconcile that reset a changed patch's review.
+    const reviewed = this.store.reviewedFiles(unit.id);
+    const change = { ...inspected.change, files: inspected.change.files.map((file) => ({ ...file, reviewed: reviewed.has(file.path) })) };
     const gateDefinitions = this.store.listGateDefinitions(unit.repositoryId);
     const gateProposals = await this.readGateProposals(unit);
     const latestRuns = latestRunsByGate(this.store.listGateRuns(unit.id));
     const visibleRuns = gateDefinitions.flatMap((gate) => {
       const run = latestRuns.get(gate.id);
       if (!run) return [];
-      if (run.definitionHash !== gate.definitionHash || run.worktreeFingerprint !== inspected.change.fingerprint) return [{ ...run, status: 'stale' as const }];
+      if (run.definitionHash !== gate.definitionHash || run.worktreeFingerprint !== change.fingerprint) return [{ ...run, status: 'stale' as const }];
       return [run];
     });
     const risk = assessRisk({
-      change: inspected.change,
+      change,
       scope: unit.scope,
-      baseMissing: !inspected.change.baseCommit,
+      baseMissing: !change.baseCommit,
       mergeConflict: inspected.mergeConflict,
       gates: gateDefinitions,
       latestRuns,
     });
-    const readiness = mergeReadiness(inspected.change, inspected.mergeConflict, gateDefinitions, latestRuns);
+    const readiness = mergeReadiness(change, inspected.mergeConflict, gateDefinitions, latestRuns);
     const nextUnit: WorkUnit = {
       ...unit,
       repositoryId: inspected.repositoryId,
       repositoryRoot: inspected.repositoryRoot,
       branch: inspected.branch,
       lifecycle: 'observing',
-      updatedAt: inspected.change.lastChangedAt,
+      updatedAt: change.lastChangedAt,
     };
     this.store.saveWorkUnit(nextUnit);
-    const partial = { workUnit: nextUnit, change: inspected.change, agentActivity, risk, mergeReadiness: readiness, gateDefinitions, gateProposals, gateRuns: visibleRuns };
+    const partial = { workUnit: nextUnit, change, agentActivity, risk, mergeReadiness: readiness, gateDefinitions, gateProposals, gateRuns: visibleRuns };
     return { ...partial, attention: attentionFor(partial, inspected.mergeConflict), queueTier: queueTier(partial, inspected.mergeConflict) };
   }
 

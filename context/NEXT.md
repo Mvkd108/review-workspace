@@ -11,17 +11,13 @@
    alone. Use at least ten real work units and three concurrent worktrees. The
    beta completion and failure criteria in `LAUNCH_CONTRACT.md` govern the
    verdict.
-4. Implement scalable review detail, file navigation, and diffs (M5): Summary,
-   Files, Diff, Checks, and Activity tabs; fixed headers with independently
-   scrolling content; virtualized or paginated file lists; filtering by
-   reviewed status, file status, directory, and risk surface; per-file diffs
-   with next/previous navigation (the unified diff stays an explicit secondary
-   option); reset a file's reviewed marker when its underlying patch changes;
-   correct handling of renamed, deleted, binary, and untracked files; and
-   path-traversal protection on the per-file diff endpoint. Acceptance: a
-   500-file work unit stays responsive, the page does not grow thousands of
-   pixels taller than the viewport, large diffs load on demand, and no Git
-   operation mutates the repository.
+4. M5 (scalable review detail, file navigation, and diffs) is implemented: the
+   five review tabs, fixed header with scrolling content, paginated and
+   filterable file lists, on-demand per-file diffs with previous/next, the
+   unified diff as a secondary view, traversal-safe per-file endpoints, and
+   reviewed markers that reset when the patch changes. The next implementation
+   milestone is owner-queued; run the seven-day kill test as the primary
+   activity in the meantime.
 5. Decide from usage whether the agent channel should stay observational.
    Control surfaces such as steering, approval, and cancellation require the AHP
    reducer spike first; that spike still has no definition in this repository.
@@ -47,9 +43,9 @@
   dataset (twenty worktrees, five with five-hundred-file diffs) a cold start
   serves the shell in about 130 ms, the first partial in about 1.6 s, and a
   fully fresh snapshot in about 4.4 s. Re-measure with `pnpm benchmark:startup`.
-- The changed-files panel renders one row per changed file. The 500-file fixture
-  in `apps/web/src/fixtures` makes this visible; page or virtualize the file list
-  to hold the "no diff row explosion" contract target. This is part of M5.
+- The "no diff row explosion" contract target is met by M5: the Files tab
+  paginates at 100 rows and per-file diffs load on demand, so a 500-file change
+  never materializes hundreds of DOM rows at once.
 - New UI modules should own a directory under `apps/web/src/features/` and be
   registered in `App.tsx`, extending `src/fixtures/workspaces.ts` when a new
   contract state needs a development surface. Shared styling lives in

@@ -13,6 +13,12 @@ export interface RepositoryInspection {
   change: ChangeSummary;
   unifiedDiff: string;
   mergeConflict: boolean | null;
+  /**
+   * Per changed file path, a hash of the content its patch is based on. The
+   * host compares this against the stored reviewed marker to reset a file's
+   * review when its underlying patch changes. Not part of the public schema.
+   */
+  fileHashes?: ReadonlyMap<string, string>;
 }
 
 export interface RepositoryAdapter {

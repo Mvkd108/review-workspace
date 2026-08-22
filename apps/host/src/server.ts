@@ -141,7 +141,15 @@ export async function startServer(service: WorkspaceService, host: string, port:
       }
       const diffMatch = pathname.match(/^\/api\/v1\/work-units\/([^/]+)\/diff$/);
       if (request.method === 'GET' && diffMatch) {
-        const diff = await service.diff(decodeURIComponent(diffMatch[1] ?? ''));
+        const id = decodeURIComponent(diffMatch[1] ?? '');
+        const file = url.searchParams.get('file');
+        if (file !== null) {
+          const fileDiff = await service.fileDiff(id, file);
+          if (fileDiff === null) return json(response, 404, { error: 'File not in the change set.' });
+          response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-cache' });
+          return response.end(fileDiff);
+        }
+        const diff = await service.diff(id);
         response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-cache' });
         return response.end(diff);
       }

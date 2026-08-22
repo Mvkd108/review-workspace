@@ -15,7 +15,7 @@
     "/work-units/archived": { "get": { "summary": "Read retained archived work units with lightweight, non-observed views", "responses": { "200": { "description": "Archived workspace snapshot" } } } },
     "/work-units/{id}/archive": { "post": { "summary": "Archive a work unit, hiding its registration without mutating or deleting its worktree", "responses": { "200": { "description": "Archived work unit" }, "404": { "description": "Work unit not found or already archived" } } } },
     "/work-units/{id}/unarchive": { "post": { "summary": "Restore an archived work unit to active observation", "responses": { "200": { "description": "Active work unit" }, "404": { "description": "Work unit not found" } } } },
-    "/work-units/{id}/diff": { "get": { "summary": "Read the current unified diff", "responses": { "200": { "description": "Plain-text diff" } } } },
+    "/work-units/{id}/diff": { "get": { "summary": "Read the full unified diff, or a single changed file's diff with ?file=<path>", "responses": { "200": { "description": "Plain-text diff" }, "404": { "description": "File not in the change set" } } } },
     "/work-units/{id}/gates": { "post": { "summary": "Approve and store a host-owned gate definition", "responses": { "201": { "description": "Gate stored" } } } },
     "/work-units/{id}/gates/{gateId}/run": { "post": { "summary": "Run a trusted gate", "responses": { "200": { "description": "Gate result" } } } },
     "/work-units/{id}/gates/{gateId}": { "delete": { "summary": "Remove a host-owned trusted gate", "responses": { "204": { "description": "Gate removed" } } } },

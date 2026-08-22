@@ -6,7 +6,7 @@ import type { GateDefinition, GateRun, TaskScope, WorkUnit, WorkUnitVisibility }
 type SqlValue = string | number | bigint | null;
 
 /** The storage schema version, tracked with SQLite's PRAGMA user_version. */
-export const DATABASE_SCHEMA_VERSION = 1;
+export const DATABASE_SCHEMA_VERSION = 2;
 
 interface Migration {
   version: number;
@@ -90,6 +90,16 @@ const MIGRATIONS: ReadonlyArray<Migration> = [
       `);
       if (!tableHasColumn(database, 'work_units', 'visibility')) {
         database.exec(`ALTER TABLE work_units ADD COLUMN visibility TEXT NOT NULL DEFAULT 'active'`);
+      }
+    },
+  },
+  {
+    // Version 2: reviewed markers record the content hash of the patch they
+    // reviewed, so a later content change can reset the marker.
+    version: 2,
+    up(database) {
+      if (!tableHasColumn(database, 'reviewed_files', 'content_hash')) {
+        database.exec(`ALTER TABLE reviewed_files ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''`);
       }
     },
   },
@@ -288,13 +298,46 @@ export class WorkspaceStore {
     return new Set(rows.map((row) => row.file_path));
   }
 
-  setFilesReviewed(workUnitId: string, files: readonly string[], reviewed: boolean): void {
-    const insert = this.database.prepare('INSERT OR REPLACE INTO reviewed_files (work_unit_id, file_path, reviewed_at) VALUES (?, ?, ?)');
+  reviewedFileHashes(workUnitId: string): Map<string, string> {
+    const rows = this.database.prepare('SELECT file_path, content_hash FROM reviewed_files WHERE work_unit_id = ?').all(workUnitId) as { file_path: string; content_hash: string }[];
+    return new Map(rows.map((row) => [row.file_path, row.content_hash]));
+  }
+
+  setFilesReviewed(workUnitId: string, files: readonly { path: string; contentHash: string }[], reviewed: boolean): void {
+    const insert = this.database.prepare('INSERT OR REPLACE INTO reviewed_files (work_unit_id, file_path, reviewed_at, content_hash) VALUES (?, ?, ?, ?)');
     const remove = this.database.prepare('DELETE FROM reviewed_files WHERE work_unit_id = ? AND file_path = ?');
     const now = new Date().toISOString();
     for (const file of files) {
-      if (reviewed) insert.run(workUnitId, file, now);
-      else remove.run(workUnitId, file);
+      if (reviewed) insert.run(workUnitId, file.path, now, file.contentHash);
+      else remove.run(workUnitId, file.path);
     }
+  }
+
+  /**
+   * Reset reviewed markers whose patch changed and drop markers for files no
+   * longer in the change set. Legacy markers without a stored hash are upgraded
+   * to the current hash so they stay valid until the patch actually changes.
+   * Returns the paths whose review was cleared.
+   */
+  reconcileReviewedHashes(workUnitId: string, fileHashes: ReadonlyMap<string, string>, currentPaths: readonly string[]): string[] {
+    const cleared: string[] = [];
+    const current = new Set(currentPaths);
+    const setHash = this.database.prepare('UPDATE reviewed_files SET content_hash = ? WHERE work_unit_id = ? AND file_path = ?');
+    const remove = this.database.prepare('DELETE FROM reviewed_files WHERE work_unit_id = ? AND file_path = ?');
+    for (const [filePath, storedHash] of this.reviewedFileHashes(workUnitId)) {
+      if (!current.has(filePath)) {
+        remove.run(workUnitId, filePath);
+        cleared.push(filePath);
+        continue;
+      }
+      const currentHash = fileHashes.get(filePath) ?? '';
+      if (storedHash === '') {
+        setHash.run(currentHash, workUnitId, filePath);
+      } else if (storedHash !== currentHash) {
+        remove.run(workUnitId, filePath);
+        cleared.push(filePath);
+      }
+    }
+    return cleared;
   }
 }

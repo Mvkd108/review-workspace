@@ -1,0 +1,8 @@
+.scrim { position: fixed; z-index: 20; inset: 0; background: rgba(38,34,28,.38); display: grid; place-items: center; padding: 30px; backdrop-filter: blur(3px); }
+.dialog { width: min(570px, 90vw); background: var(--paper); border: 1px solid rgba(255,255,255,.45); border-radius: 15px; box-shadow: var(--shadow); padding: 27px; position: relative; }
+.dialog-close { position: absolute; top: 17px; right: 17px; }
+.dialog h2 { margin: 0; font: 600 29px Newsreader, Georgia, serif; }
+.dialog-copy { color: var(--muted); margin: 8px 0 21px; font-size: 12px; line-height: 1.55; max-width: 470px; }
+.stack-form { display: grid; gap: 14px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 5px; }

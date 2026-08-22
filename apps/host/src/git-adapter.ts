@@ -61,6 +61,27 @@ function parseNameStatus(raw: string): ChangeFile[] {
   return files;
 }
 
+function diffSections(fullDiff: string): string[] {
+  return fullDiff.split(/\n(?=diff --git )/).filter((section) => section.trim().length > 0);
+}
+
+function unquoteGitPath(token: string): string {
+  if (token.startsWith('"') && token.endsWith('"')) return token.slice(1, -1).replace(/\\(.)/g, '$1');
+  return token;
+}
+
+/** Parse `diff --git a/src/x.ts b/src/x.ts`, tolerating quoted paths with spaces. */
+function parseDiffHeader(header: string): { src?: string; dst?: string } {
+  const match = header.match(/^diff --git\s+("(?:[^"\\]|\\.)*"|[^\s]+)\s+("(?:[^"\\]|\\.)*"|[^\s]+)\s*$/);
+  if (!match) return {};
+  const result: { src?: string; dst?: string } = {};
+  const src = unquoteGitPath(match[1] ?? '').replace(/^a\//, '');
+  const dst = unquoteGitPath(match[2] ?? '').replace(/^b\//, '');
+  if (src && src !== '/dev/null') result.src = src;
+  if (dst && dst !== '/dev/null') result.dst = dst;
+  return result;
+}
+
 function addNumStats(files: ChangeFile[], raw: string): void {
   const byPath = new Map(files.map((file) => [file.path, file]));
   for (const line of raw.split(/\r?\n/)) {
@@ -89,19 +110,23 @@ async function hashFile(absolutePath: string): Promise<string> {
   });
 }
 
-async function hashUntracked(worktreePath: string, files: readonly string[]): Promise<string> {
+async function hashUntracked(worktreePath: string, files: readonly string[]): Promise<{ combined: string; perFile: Map<string, string> }> {
   const hash = createHash('sha256');
+  const perFile = new Map<string, string>();
   for (const file of [...files].sort()) {
     hash.update(file);
     hash.update('\0');
+    let fileHash = '';
     try {
-      hash.update(await hashFile(path.join(worktreePath, file)));
+      fileHash = await hashFile(path.join(worktreePath, file));
     } catch (error) {
-      hash.update(`unreadable:${error instanceof Error ? error.message : String(error)}`);
+      fileHash = `unreadable:${error instanceof Error ? error.message : String(error)}`;
     }
+    hash.update(fileHash);
     hash.update('\0');
+    perFile.set(file, fileHash);
   }
-  return hash.digest('hex');
+  return { combined: hash.digest('hex'), perFile };
 }
 
 async function untrackedDiff(worktreePath: string, files: readonly string[]): Promise<string> {
@@ -188,6 +213,22 @@ export class GitCliRepositoryAdapter implements RepositoryAdapter {
     this.diffCache.delete(workUnitId);
   }
 
+  /**
+   * Return the cached diff section for a single changed file, or undefined when
+   * the file is not part of the cached diff. The client path is matched against
+   * diff section headers only; it is never used to touch the filesystem.
+   */
+  diffForFile(workUnitId: string, filePath: string): string | undefined {
+    const fullDiff = this.diffCache.get(workUnitId);
+    if (!fullDiff) return undefined;
+    for (const section of diffSections(fullDiff)) {
+      const header = section.split('\n', 1)[0] ?? '';
+      const { src, dst } = parseDiffHeader(header);
+      if (dst === filePath || (src === filePath && dst === '/dev/null')) return section;
+    }
+    return undefined;
+  }
+
   async inspect(workUnit: WorkUnit, reviewedFiles: ReadonlySet<string>): Promise<RepositoryInspection> {
     const cwd = workUnit.worktreePath;
     const identity = await this.resolveIdentity(cwd, workUnit.baseRef);
@@ -219,11 +260,26 @@ export class GitCliRepositoryAdapter implements RepositoryAdapter {
     const [behindRaw = '0', aheadRaw = '0'] = countsRaw.split(/\s+/);
     const ahead = Number.parseInt(aheadRaw, 10) || 0;
     const behind = Number.parseInt(behindRaw, 10) || 0;
-    const untrackedContentHash = await hashUntracked(cwd, untracked);
+    const untrackedHashes = await hashUntracked(cwd, untracked);
     const trackedDiffHash = sha256(trackedDiff);
-    const fingerprint = sha256(baseCommit || 'missing-base', identity.headCommit, trackedDiffHash, untrackedContentHash);
+    const fingerprint = sha256(baseCommit || 'missing-base', identity.headCommit, trackedDiffHash, untrackedHashes.combined);
     const fullDiff = `${trackedDiff}${trackedDiff && untracked.length ? '\n' : ''}${await untrackedDiff(cwd, untracked)}`;
     this.diffCache.set(workUnit.id, fullDiff);
+
+    // Per-file content hashes let the host reset a reviewed marker when the
+    // underlying patch changes. Untracked files reuse the hash computed above.
+    const fileHashes = new Map<string, string>(untrackedHashes.perFile);
+    for (const file of files) {
+      if (file.status === 'deleted') {
+        fileHashes.set(file.path, sha256(`deleted:${file.path}`));
+      } else if (!fileHashes.has(file.path)) {
+        try {
+          fileHashes.set(file.path, await hashFile(path.join(cwd, file.path)));
+        } catch (error) {
+          fileHashes.set(file.path, sha256(`unreadable:${file.path}`));
+        }
+      }
+    }
 
     let mergeConflict: boolean | null = null;
     if (baseCommit && statusRaw.length === 0 && ahead > 0) {
@@ -241,6 +297,7 @@ export class GitCliRepositoryAdapter implements RepositoryAdapter {
       branch: identity.branch,
       unifiedDiff: fullDiff,
       mergeConflict,
+      fileHashes,
       change: {
         ...(baseCommit ? { baseCommit: mergeBase || baseCommit } : {}),
         headCommit: identity.headCommit,
@@ -253,7 +310,7 @@ export class GitCliRepositoryAdapter implements RepositoryAdapter {
         deletions,
         topLevelAreas,
         trackedDiffHash,
-        untrackedContentHash,
+        untrackedContentHash: untrackedHashes.combined,
         fingerprint,
         lastChangedAt: await latestChangedAt(cwd, files, headIso),
       },

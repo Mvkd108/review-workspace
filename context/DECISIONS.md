@@ -211,6 +211,27 @@ paths instead of re-inspecting everything. Snapshots carry
 pending change, degraded watch, or failed inspection marks the snapshot stale so
 readiness is never presented as current on stale evidence.
 
+## 2026-08-22 — M5: review detail is per-file and paginated
+
+Review detail is five tabs — Summary, Files, Diff, Checks, Activity — with a
+fixed header and tab bar over an independently scrolling content region. Large
+file lists paginate at one hundred rows and filter by reviewed status, file
+status, directory, and risk surface, so a 500-file change never materializes
+hundreds of DOM rows. The Diff tab shows one file at a time with previous/next
+navigation and keeps the full unified diff as an explicit secondary view;
+per-file diffs are fetched on demand from the cached inspection.
+
+## 2026-08-22 — M5: reviewed markers are hash-bound to their patch
+
+The store's `reviewed_files` rows record the content hash of the patch they
+reviewed (database schema version 2). During inspection the host hashes each
+changed file and reconciles the markers: a file whose content changed, or that
+left the change set, has its review reset; legacy markers without a hash are
+upgraded to the current hash so they stay valid until the patch actually
+changes. The per-file diff endpoint serves only files in the change set and
+never touches the filesystem with client input, so path traversal is
+impossible and no Git operation mutates the repository.
+
 ## 2026-08-23 — M7: agent activity is advisory, legible, and path-free
 
 - The public `AgentSession` no longer carries `sourcePath`. The host still needs

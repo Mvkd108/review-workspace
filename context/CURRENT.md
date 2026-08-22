@@ -50,6 +50,17 @@ reducer spike has not run.
   a failed inspection marks the workspace `stale` so readiness is never
   presented as current on stale evidence. Degraded watch paths fall back to
   periodic Git polling.
+- Review detail has five tabs — Summary, Files, Diff, Checks, Activity — with a
+  fixed header and tab bar while the content region scrolls independently.
+- The Files tab paginates large change sets (100 per page) and filters by
+  reviewed status, file status, directory, and risk surface. The Diff tab shows
+  one file at a time with previous/next navigation and an explicit Unified diff
+  secondary view; per-file diffs are loaded on demand through
+  `GET /work-units/{id}/diff?file=<path>`, which refuses anything outside the
+  change set, so traversal is impossible and no Git operation mutates the repo.
+- A reviewed marker is valid only while the patch it reviewed is unchanged: the
+  host hashes each changed file during inspection and resets the marker when the
+  content changes or the file leaves the change set.
 - The web app is decomposed into feature directories under `apps/web/src/features`
   (workspace-queue, review, gates, activity, registration) with shared components
   under `components/`, a fixture registry under `fixtures/`, and styles split
@@ -127,11 +138,13 @@ reducer spike has not run.
 ## Verification evidence
 
 - TypeScript checks pass for the schema, adapter API, host, and web app.
-- Forty-nine host tests pass, covering CLI argument forwarding, risk evidence,
+- Fifty-two host tests pass, covering CLI argument forwarding, risk evidence,
   exact gate binding, native Git inspection, clean-branch merge checks, unchanged
   gate reuse, stale invalidation, untrusted repo gate proposals, the store
   migration, the work-unit archive API including the archived listing endpoint,
-  incremental reconciliation, and fourteen agent activity cases (open, closed,
+  incremental reconciliation, the per-file diff endpoint with path-traversal
+  refusals, reviewed markers that reset when a patch changes or a file leaves
+  the change set, and fourteen agent activity cases (open, closed,
   and aborted Codex turns with realistic message and tool-output fixtures, open
   and closed Claude Code turns with realistic content blocks, open turns that
   stopped writing, the three-minute staleness boundary, discovery-window expiry,
@@ -154,7 +167,7 @@ reducer spike has not run.
 - Strict context validation passes.
 - Windows integration-test cleanup guarantees service shutdown, retries removal
   of temporarily locked SQLite directories, and uses a 15-second timeout.
-- Fifty-nine web tests pass, covering empty, healthy, blocked, working/stalled
+- Sixty-four web tests pass, covering empty, healthy, blocked, working/stalled
   agent, no-signal, archived, unavailable, 500-file, all four check-state
   fixtures, pending proposals, running checks, the 19-unit multi-repository
   dataset, plus global error, loading, queue selection, view filtering and
