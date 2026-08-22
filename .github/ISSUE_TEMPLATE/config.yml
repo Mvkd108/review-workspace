@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/Mvkd108/GenUI-Harness/security/advisories/new
+    url: https://github.com/Mvkd108/review-workspace/security/advisories/new
     about: Please report vulnerabilities privately rather than in a public issue.
   - name: Project state, decisions, and planned work
-    url: https://github.com/Mvkd108/GenUI-Harness/tree/main/context
+    url: https://github.com/Mvkd108/review-workspace/tree/main/context
     about: Current behaviour, the decision log, and the ordered next steps.

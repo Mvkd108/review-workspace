@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://review-workspace.dev/schema/0.2.0/workspace.schema.json",
+  "$id": "https://review-workspace.dev/schema/0.3.0-beta.1/workspace.schema.json",
   "title": "Review Workspace Snapshot",
   "type": "object",
   "required": ["schemaVersion", "seq", "generatedAt", "workUnits"],
   "properties": {
-    "schemaVersion": { "const": "0.2.0" },
+    "schemaVersion": { "const": "0.3.0-beta.1" },
     "seq": { "type": "integer", "minimum": 0 },
     "generatedAt": { "type": "string", "format": "date-time" },
     "workUnits": {
@@ -33,7 +33,7 @@
     },
     "workUnit": {
       "type": "object",
-      "required": ["id", "kind", "task", "repositoryId", "repositoryRoot", "worktreePath", "branch", "baseRef", "lifecycle", "scope", "createdAt", "updatedAt"],
+      "required": ["id", "kind", "task", "repositoryId", "repositoryRoot", "worktreePath", "branch", "baseRef", "lifecycle", "visibility", "scope", "createdAt", "updatedAt"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "kind": { "enum": ["unmanaged", "managed"] },
@@ -45,7 +45,8 @@
         "worktreePath": { "type": "string" },
         "branch": { "type": "string" },
         "baseRef": { "type": "string" },
-        "lifecycle": { "enum": ["observing", "ready-for-review", "blocked", "unavailable"] },
+        "lifecycle": { "enum": ["observing", "unavailable"] },
+        "visibility": { "enum": ["active", "archived"] },
         "scope": { "type": "object" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }

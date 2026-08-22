@@ -4,9 +4,9 @@
   "private": true,
   "description": "A local-first review workspace for coding-agent worktrees",
   "license": "Apache-2.0",
-  "repository": { "type": "git", "url": "git+https://github.com/Mvkd108/GenUI-Harness.git" },
-  "bugs": { "url": "https://github.com/Mvkd108/GenUI-Harness/issues" },
-  "homepage": "https://github.com/Mvkd108/GenUI-Harness#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/Mvkd108/review-workspace.git" },
+  "bugs": { "url": "https://github.com/Mvkd108/review-workspace/issues" },
+  "homepage": "https://github.com/Mvkd108/review-workspace#readme",
   "packageManager": "pnpm@11.20.0",
   "engines": { "node": ">=24" },
   "scripts": {

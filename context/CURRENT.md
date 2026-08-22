@@ -1,11 +1,20 @@
 # Current state
 
-Last updated: 2026-08-20
+Last updated: 2026-08-22
+
+The architecture is frozen by `LAUNCH_CONTRACT.md`, which defines the product
+identity, the four authoritative state vocabularies, the worktree-preservation
+rule, the performance targets, the exclusions, and the beta completion and
+failure criteria. The schema now matches the contract's work-unit vocabulary:
+`visibility` (`active`/`archived`) is persisted and operator-controlled, while
+`lifecycle` (`observing`/`unavailable`) is derived observability. Review state
+lives in `mergeReadiness` and attention, never in lifecycle.
 
 Phase 0a is implemented as a usable local review workspace. The canonical
 repository is published on `main` at
-`https://github.com/Mvkd108/GenUI-Harness`; the initial source checkpoint is
-commit `bebd094`.
+`https://github.com/Mvkd108/review-workspace`; the initial source checkpoint is
+commit `bebd094`. The repository was renamed from `GenUI-Harness` to
+`review-workspace` on 2026-08-22, and the local `origin` remote tracks it.
 
 The first Phase 0b slice, the read-only agent channel, is also implemented. It
 was started before its two gates were met, by owner decision recorded in
@@ -30,9 +39,43 @@ reducer spike has not run.
 - Ranked queue, evidence panels, unified diff, reviewed-file tracking, trusted
   gate management and logs, ordered SSE snapshots, and periodic plus watched
   reconciliation.
+- The web app is decomposed into feature directories under `apps/web/src/features`
+  (workspace-queue, review, gates, activity, registration) with shared components
+  under `components/`, a fixture registry under `fixtures/`, and styles split
+  into tokens, layout, shared components, and per-feature stylesheets. `App.tsx`
+  is primarily composition and data connection; the api is injectable through
+  `ApiContext` so fixtures and tests substitute a stub.
+- A fixture-driven development page (`?harness` URL) serves contract-state
+  snapshots through an in-memory api, code-split out of the main bundle.
+- React component tests run in jsdom with Testing Library, covering render,
+  error, loading, selection, tabs, the registration dialog, and fixture
+  integrity.
+- The queue is attention-first: compact rows grouped by repository, five views
+  with live counts (Needs attention, In progress, Ready, All active, Archived),
+  keyboard search across task/branch/repo/agent/file paths, and one primary state
+  plus one recommended next action per row. Archived work is hidden by default,
+  never deleted, and browsable through `GET /api/v1/work-units/archived`, which
+  builds lightweight views without Git inspection. Archive, restore, bulk archive,
+  and an explicit Unregister (files untouched) are available from the queue and
+  the detail pane. First-run onboarding and per-view empty states guide a fresh
+  workspace.
 - CLI refuses `--lan`; LAN access remains closed until Phase 0b security exists.
 - CLI accepts pnpm's standalone `--` argument separator, so the documented
   root-level start command forwards host options correctly.
+- Storage defaults to the OS application-data directory. A relative `--data-dir`
+  resolves against the directory pnpm was invoked from (`INIT_CWD`), so the root
+  `pnpm start -- --data-dir .review-workspace` command lands in the repository
+  root rather than `apps/host`.
+- The SQLite database carries an explicit schema version (`PRAGMA user_version`)
+  with ordered migrations. A legacy 0.2.0 database upgrades in place without
+  losing registrations, gates, runs, or reviewed state.
+- Host-owned storage is refused inside an observed worktree, both when a
+  registration would enclose the data directory and when the data directory is
+  moved into an already-registered worktree.
+- Work units persist operator-controlled visibility (`active`/`archived`).
+  Archive and unarchive hide or restore a registration without touching the
+  worktree; bulk archive and a lightweight `GET /api/v1/work-units/archived`
+  view complete the read surface.
 - Read-only agent channel. Codex and Claude Code transcripts are discovered under
   `~/.codex/sessions` and `~/.claude/projects`, bound to a worktree by the `cwd`
   each session reports, and reduced to `working`, `stalled`, `idle`, or
@@ -51,12 +94,14 @@ reducer spike has not run.
 ## Verification evidence
 
 - TypeScript checks pass for the schema, adapter API, host, and web app.
-- Fourteen host tests pass, covering CLI argument forwarding, risk evidence,
+- Thirty-seven host tests pass, covering CLI argument forwarding, risk evidence,
   exact gate binding, native Git inspection, clean-branch merge checks, unchanged
-  gate reuse, stale invalidation, untrusted repo gate proposals, and seven agent
-  activity cases: open and closed Codex turns, an open Claude Code tool call, an
+  gate reuse, stale invalidation, untrusted repo gate proposals, seven agent
+  activity cases (open and closed Codex turns, an open Claude Code tool call, an
   open turn that stopped writing, discovery-window expiry, sibling directories
-  that share a name prefix, and most-specific worktree binding.
+  that share a name prefix, and most-specific worktree binding), the store
+  migration, and the work-unit archive API including the archived listing
+  endpoint.
 - Observed live against eighteen registered worktrees: the workspace correctly
   reported the Claude Code session editing it as `working` with an open turn,
   demoted it to the lowest queue tier, and raised the matching attention item.
@@ -72,6 +117,14 @@ reducer spike has not run.
 - Strict context validation passes.
 - Windows integration-test cleanup guarantees service shutdown, retries removal
   of temporarily locked SQLite directories, and uses a 15-second timeout.
+- Thirty-six web tests pass, covering empty, healthy, blocked, working/stalled
+  agent, archived, unavailable, 500-file, all four check-state fixtures, the
+  19-unit multi-repository dataset, plus global error, loading, queue selection,
+  view filtering and grouping, search, per-view counts, archive/restore/bulk
+  archive, diff-tab switching, the registration dialog, queueMeta derivations,
+  and the fixture harness.
+- Thirty-seven host tests pass, including the archive API suite and the archived
+  listing endpoint.
 
 ## Run locally
 
@@ -116,5 +169,8 @@ worktrees. Gate arguments are entered one argument per line.
 - Automatic post-turn gates do not exist without the managed-agent channel.
 - The CLI is npx-ready in shape and now carries publish metadata, but the
   `@review-workspace` npm scope has not been reserved and nothing is published.
-  The GitHub repository is still named `GenUI-Harness`, which does not match the
-  tool's name; that will hurt discoverability if it is announced as-is.
+  The GitHub repository is renamed to `review-workspace`; the npm scope remains
+  the only outstanding publication action.
+- The contract's `needs review` and `clean` review states still have no single
+  serialized schema value; they are derivable from review state, change presence,
+  and gate results. This is a follow-up, not a contradiction.

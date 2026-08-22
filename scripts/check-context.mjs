@@ -2,6 +2,7 @@ import { access, readFile } from 'node:fs/promises';
 
 const required = [
   'context/README.md',
+  'context/LAUNCH_CONTRACT.md',
   'context/PRODUCT.md',
   'context/CURRENT.md',
   'context/DECISIONS.md',

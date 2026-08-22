@@ -1,8 +1,18 @@
-export const WORKSPACE_SCHEMA_VERSION = '0.2.0' as const;
+export const WORKSPACE_SCHEMA_VERSION = '0.3.0-beta.1' as const;
 
 export type WorkUnitKind = 'unmanaged' | 'managed';
 export type AgentLabel = 'claude-code' | 'cursor' | 'codex' | 'other';
-export type WorkUnitLifecycle = 'observing' | 'ready-for-review' | 'blocked' | 'unavailable';
+/**
+ * Operator-controlled persistence of a registration. The workspace never
+ * derives this value; only explicit archive/unarchive operations change it.
+ */
+export type WorkUnitVisibility = 'active' | 'archived';
+/**
+ * Derived observability of the worktree. Review state (needs review, blocked,
+ * ready, clean) is separate and reported through mergeReadiness and attention,
+ * never through lifecycle.
+ */
+export type WorkUnitLifecycle = 'observing' | 'unavailable';
 export type RiskLevel = 'low' | 'medium' | 'high';
 export type MergeReadinessStatus = 'ready' | 'blocked' | 'unknown';
 export type GateRunStatus = 'running' | 'passed' | 'failed' | 'error' | 'stale';
@@ -26,6 +36,7 @@ export interface WorkUnit {
   branch: string;
   baseRef: string;
   lifecycle: WorkUnitLifecycle;
+  visibility: WorkUnitVisibility;
   scope: TaskScope;
   createdAt: string;
   updatedAt: string;

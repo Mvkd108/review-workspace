@@ -121,6 +121,28 @@ export class WorkspaceService {
     return this.snapshot;
   }
 
+  /**
+   * Archived work units, as lightweight views. They are no longer observed, so
+   * no Git inspection runs here; the rows carry only registration identity and
+   * the stored gate state. This is a read surface, never a deletion path.
+   */
+  async archived(): Promise<WorkspaceSnapshot> {
+    const units = this.store.listWorkUnits({ includeArchived: true }).filter((unit) => unit.visibility === 'archived');
+    const workUnits: WorkUnitView[] = units.map((unit) => ({
+      workUnit: unit,
+      change: null,
+      agentActivity: { state: 'unknown', sessions: [] },
+      risk: { level: 'low', sortScore: 0, reasons: [] },
+      mergeReadiness: { status: 'unknown', reasons: ['Archived work unit.'] },
+      gateDefinitions: this.store.listGateDefinitions(unit.repositoryId),
+      gateProposals: [],
+      gateRuns: this.store.listGateRuns(unit.id),
+      attention: [],
+      queueTier: 3,
+    }));
+    return { schemaVersion: WORKSPACE_SCHEMA_VERSION, seq: this.snapshot.seq, generatedAt: new Date().toISOString(), workUnits };
+  }
+
   subscribe(subscriber: Subscriber): () => void {
     this.subscribers.add(subscriber);
     return () => this.subscribers.delete(subscriber);
@@ -180,6 +202,7 @@ export class WorkspaceService {
       branch: identity.branch,
       baseRef: identity.baseRef,
       lifecycle: 'observing',
+      visibility: 'active',
       scope: {
         allowedGlobs: (input.allowedGlobs ?? []).filter(Boolean),
         inferredPathTokens: inferPathTokens(input.task),
@@ -200,6 +223,34 @@ export class WorkspaceService {
     if (removed && unit) await this.watcher?.unwatch(unit.worktreePath);
     await this.refresh();
     return removed;
+  }
+
+  async archive(id: string): Promise<WorkUnit | undefined> {
+    const unit = this.store.getWorkUnit(id);
+    if (!unit) return undefined;
+    this.store.setVisibility(id, 'archived');
+    await this.watcher?.unwatch(unit.worktreePath);
+    await this.refresh();
+    return this.store.getWorkUnit(id, { includeArchived: true });
+  }
+
+  async unarchive(id: string): Promise<WorkUnit | undefined> {
+    const unit = this.store.getWorkUnit(id, { includeArchived: true });
+    if (!unit) return undefined;
+    this.store.setVisibility(id, 'active');
+    this.watcher?.add(unit.worktreePath);
+    await this.refresh();
+    return this.store.getWorkUnit(id);
+  }
+
+  async archiveMany(ids: readonly string[]): Promise<string[]> {
+    const affected = this.store.setVisibilityMany(ids, 'archived');
+    for (const id of affected) {
+      const unit = this.store.getWorkUnit(id, { includeArchived: true });
+      if (unit) await this.watcher?.unwatch(unit.worktreePath);
+    }
+    await this.refresh();
+    return affected;
   }
 
   async addGate(workUnitId: string, input: GateDefinitionInput): Promise<GateDefinition> {
@@ -318,7 +369,7 @@ export class WorkspaceService {
         repositoryId: inspected.repositoryId,
         repositoryRoot: inspected.repositoryRoot,
         branch: inspected.branch,
-        lifecycle: inspected.change.files.length > 0 ? 'ready-for-review' : readiness.status === 'blocked' ? 'blocked' : 'observing',
+        lifecycle: 'observing',
         updatedAt: inspected.change.lastChangedAt,
       };
       this.store.saveWorkUnit(nextUnit);

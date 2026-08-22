@@ -42,7 +42,7 @@ describe('Git CLI repository adapter', () => {
     const workUnit: WorkUnit = {
       id: 'unit', kind: 'unmanaged', task: 'Update api.ts', repositoryId: identity.repositoryId,
       repositoryRoot: identity.repositoryRoot, worktreePath: identity.worktreePath,
-      branch: identity.branch, baseRef: identity.baseRef, lifecycle: 'observing',
+      branch: identity.branch, baseRef: identity.baseRef, lifecycle: 'observing', visibility: 'active',
       scope: { allowedGlobs: [], inferredPathTokens: ['api.ts'], confirmed: false }, createdAt: now, updatedAt: now,
     };
     const inspection = await adapter.inspect(workUnit, new Set(['api.ts']));
@@ -61,7 +61,7 @@ describe('Git CLI repository adapter', () => {
     const adapter = new GitCliRepositoryAdapter();
     const identity = await adapter.resolveIdentity(root, 'main');
     const now = new Date().toISOString();
-    const inspection = await adapter.inspect({ id: 'unit', kind: 'unmanaged', task: 'Update API', repositoryId: identity.repositoryId, repositoryRoot: identity.repositoryRoot, worktreePath: identity.worktreePath, branch: identity.branch, baseRef: 'main', lifecycle: 'observing', scope: { allowedGlobs: [], inferredPathTokens: [], confirmed: false }, createdAt: now, updatedAt: now }, new Set());
+    const inspection = await adapter.inspect({ id: 'unit', kind: 'unmanaged', task: 'Update API', repositoryId: identity.repositoryId, repositoryRoot: identity.repositoryRoot, worktreePath: identity.worktreePath, branch: identity.branch, baseRef: 'main', lifecycle: 'observing', visibility: 'active', scope: { allowedGlobs: [], inferredPathTokens: [], confirmed: false }, createdAt: now, updatedAt: now }, new Set());
     expect(inspection.change.dirty).toBe(false);
     expect(inspection.change.ahead).toBe(1);
     expect(inspection.mergeConflict).toBe(false);

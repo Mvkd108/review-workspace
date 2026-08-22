@@ -3,11 +3,13 @@
 This directory is the durable handoff for people and coding agents. Read it in
 this order before inspecting the implementation:
 
-1. `PRODUCT.md` — why this exists and what is deliberately out of scope.
-2. `CURRENT.md` — verified implementation state and limitations.
-3. `DECISIONS.md` — architectural decisions that should not be rediscovered.
-4. `NEXT.md` — ordered work with acceptance criteria.
-5. The newest entry under `sessions/` — the exact continuation point.
+1. `LAUNCH_CONTRACT.md` — the architecture freeze: names, authoritative states,
+   performance targets, exclusions, and beta completion/failure criteria.
+2. `PRODUCT.md` — why this exists and what is deliberately out of scope.
+3. `CURRENT.md` — verified implementation state and limitations.
+4. `DECISIONS.md` — architectural decisions that should not be rediscovered.
+5. `NEXT.md` — ordered work with acceptance criteria.
+6. The newest entry under `sessions/` — the exact continuation point.
 
 ## Handoff rule
 

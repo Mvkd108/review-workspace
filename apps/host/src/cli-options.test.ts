@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseArgs } from './cli-options.js';
+import { defaultDataDirectory, parseArgs } from './cli-options.js';
 
 // An absolute path on the platform running the suite. A hardcoded Windows path
 // is only absolute on Windows, so path.resolve would prefix the real cwd
@@ -18,9 +18,29 @@ describe('CLI options', () => {
     expect(parseArgs(['--data-dir', 'nested/data'], cwd).dataDirectory).toBe(path.resolve(cwd, 'nested/data'));
   });
 
-  it('defaults to a data directory beside the working directory', () => {
-    expect(parseArgs([], cwd).dataDirectory).toBe(path.resolve(cwd, '.review-workspace'));
-    expect(parseArgs([], cwd).port).toBe(4317);
+  it('keeps an absolute data directory as-is', () => {
+    const absolute = path.resolve(cwd, 'abs', 'data');
+    expect(parseArgs(['--data-dir', absolute], cwd).dataDirectory).toBe(absolute);
+  });
+
+  it('defaults to the OS application-data directory rather than the working directory', () => {
+    const options = parseArgs([], cwd);
+    expect(options.dataDirectory).toBe(defaultDataDirectory());
+    expect(options.dataDirectory.startsWith(cwd)).toBe(false);
+    expect(options.port).toBe(4317);
+  });
+
+  it('prefers the pnpm invocation directory over process.cwd() for a relative data directory', () => {
+    const previous = process.env.INIT_CWD;
+    const invocation = path.resolve(cwd, 'invocation');
+    process.env.INIT_CWD = invocation;
+    try {
+      const options = parseArgs(['--data-dir', '.review-workspace']);
+      expect(options.dataDirectory).toBe(path.resolve(invocation, '.review-workspace'));
+    } finally {
+      if (previous === undefined) delete process.env.INIT_CWD;
+      else process.env.INIT_CWD = previous;
+    }
   });
 
   it('rejects a port outside the valid range', () => {

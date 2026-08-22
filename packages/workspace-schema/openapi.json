@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Review Workspace Local API",
-    "version": "0.2.0",
+    "version": "0.3.0-beta.1",
     "license": { "name": "Apache-2.0" }
   },
   "servers": [{ "url": "http://127.0.0.1:4317/api/v1" }],
@@ -11,6 +11,10 @@
     "/events": { "get": { "summary": "Subscribe to ordered workspace events over server-sent events", "responses": { "200": { "description": "Event stream" } } } },
     "/work-units": { "post": { "summary": "Register an existing worktree", "responses": { "201": { "description": "Registered" } } } },
     "/work-units/{id}": { "delete": { "summary": "Unregister a work unit without deleting its worktree", "responses": { "204": { "description": "Unregistered" } } } },
+    "/work-units/archive": { "post": { "summary": "Archive multiple work units, hiding their registrations without touching their worktrees", "responses": { "200": { "description": "Archived work-unit ids" } } } },
+    "/work-units/archived": { "get": { "summary": "Read retained archived work units with lightweight, non-observed views", "responses": { "200": { "description": "Archived workspace snapshot" } } } },
+    "/work-units/{id}/archive": { "post": { "summary": "Archive a work unit, hiding its registration without mutating or deleting its worktree", "responses": { "200": { "description": "Archived work unit" }, "404": { "description": "Work unit not found or already archived" } } } },
+    "/work-units/{id}/unarchive": { "post": { "summary": "Restore an archived work unit to active observation", "responses": { "200": { "description": "Active work unit" }, "404": { "description": "Work unit not found" } } } },
     "/work-units/{id}/diff": { "get": { "summary": "Read the current unified diff", "responses": { "200": { "description": "Plain-text diff" } } } },
     "/work-units/{id}/gates": { "post": { "summary": "Approve and store a host-owned gate definition", "responses": { "201": { "description": "Gate stored" } } } },
     "/work-units/{id}/gates/{gateId}/run": { "post": { "summary": "Run a trusted gate", "responses": { "200": { "description": "Gate result" } } } },

@@ -112,6 +112,27 @@ export async function startServer(service: WorkspaceService, host: string, port:
         const unit = await service.register(await readJson<WorkUnitRegistration>(request));
         return json(response, 201, unit);
       }
+      if (request.method === 'GET' && pathname === '/api/v1/work-units/archived') {
+        return json(response, 200, await service.archived());
+      }
+      if (request.method === 'GET' && pathname === '/api/v1/work-units/archived') return json(response, 200, await service.archived());
+      if (request.method === 'POST' && pathname === '/api/v1/work-units/archive') {
+        const input = await readJson<{ ids?: string[] }>(request);
+        const ids = (input.ids ?? []).filter((id): id is string => typeof id === 'string');
+        if (ids.length === 0) throw new Error('Bulk archive requires at least one work-unit id.');
+        const archived = await service.archiveMany(ids);
+        return json(response, 200, { archived });
+      }
+      const archiveMatch = pathname.match(/^\/api\/v1\/work-units\/([^/]+)\/archive$/);
+      if (request.method === 'POST' && archiveMatch) {
+        const unit = await service.archive(decodeURIComponent(archiveMatch[1] ?? ''));
+        return unit ? json(response, 200, unit) : json(response, 404, { error: 'Work unit not found or already archived.' });
+      }
+      const unarchiveMatch = pathname.match(/^\/api\/v1\/work-units\/([^/]+)\/unarchive$/);
+      if (request.method === 'POST' && unarchiveMatch) {
+        const unit = await service.unarchive(decodeURIComponent(unarchiveMatch[1] ?? ''));
+        return unit ? json(response, 200, unit) : json(response, 404, { error: 'Work unit not found.' });
+      }
 
       const workUnitMatch = pathname.match(/^\/api\/v1\/work-units\/([^/]+)$/);
       if (request.method === 'DELETE' && workUnitMatch) {

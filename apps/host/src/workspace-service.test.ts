@@ -65,3 +65,40 @@ describe('Workspace service gate trust', () => {
     }
   }, 15_000);
 });
+
+describe('Workspace service lifecycle and readiness', () => {
+  it('never reports a blocked work unit as ready-for-review, at rest or in the view', async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-blocked-base-')); temporary.push(base);
+    await git(base, 'init', '-b', 'main');
+    await git(base, 'config', 'user.name', 'Review Test');
+    await git(base, 'config', 'user.email', 'review@example.test');
+    await writeFile(path.join(base, 'value.txt'), 'base\n');
+    await git(base, 'add', '.'); await git(base, 'commit', '-m', 'base');
+
+    const worktrees = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-blocked-wts-')); temporary.push(worktrees);
+    const roots: string[] = [];
+    for (let index = 0; index < 17; index += 1) {
+      const root = path.join(worktrees, `wt-${index}`);
+      await git(base, 'worktree', 'add', '-b', `feature-${index}`, root);
+      await writeFile(path.join(root, 'value.txt'), `dirty ${index}\n`);
+      roots.push(root);
+    }
+
+    const data = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-blocked-data-')); temporary.push(data);
+    const service = new WorkspaceService(new WorkspaceStore(data));
+    try {
+      for (const root of roots) await service.register({ task: 'Dirty change', worktreePath: root, baseRef: 'main' });
+      await service.refresh();
+      const views = service.current().workUnits;
+      expect(views).toHaveLength(17);
+      for (const view of views) {
+        expect(view.workUnit.lifecycle).toBe('observing');
+        expect(view.workUnit.lifecycle).not.toBe('ready-for-review');
+        expect(view.mergeReadiness.status).toBe('blocked');
+        expect(service.store.getWorkUnit(view.workUnit.id)?.lifecycle).toBe('observing');
+      }
+    } finally {
+      await service.stop();
+    }
+  }, 30_000);
+});
