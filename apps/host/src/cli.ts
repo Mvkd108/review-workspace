@@ -24,8 +24,15 @@ async function main(): Promise<void> {
   ]);
 
   const service = new WorkspaceService(new WorkspaceStore(options.dataDirectory));
-  await service.start();
+  // Serve the shell before the first Git pass so the UI is available within the
+  // contract's two-second target; reconciliation publishes partial snapshots.
   const server = await startServer(service, '127.0.0.1', options.port);
+  try {
+    await service.start();
+  } catch (error) {
+    await server.close();
+    throw error;
+  }
   console.log(`Review Workspace is ready at ${server.url}`);
   console.log(`Host-owned data: ${options.dataDirectory}`);
   if (options.open) openBrowser(server.url);

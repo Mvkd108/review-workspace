@@ -11,14 +11,17 @@
    alone. Use at least ten real work units and three concurrent worktrees. The
    beta completion and failure criteria in `LAUNCH_CONTRACT.md` govern the
    verdict.
-4. Implement incremental refresh and startup performance (M2): start the HTTP
-   server before the first complete Git reconciliation, publish ordered partial
-   snapshots while work units are inspected, reinspect only affected worktrees,
-   coalesce duplicate watcher events, bound Git-inspection concurrency, and
-   expose inspecting/fresh/stale status without making readiness claims from
-   stale evidence. Acceptance bar: a two-second UI shell and a five-second
-   useful workspace at roughly twenty work units, with the roughly forty-second
-   first snapshot eliminated.
+4. Implement scalable review detail, file navigation, and diffs (M5): Summary,
+   Files, Diff, Checks, and Activity tabs; fixed headers with independently
+   scrolling content; virtualized or paginated file lists; filtering by
+   reviewed status, file status, directory, and risk surface; per-file diffs
+   with next/previous navigation (the unified diff stays an explicit secondary
+   option); reset a file's reviewed marker when its underlying patch changes;
+   correct handling of renamed, deleted, binary, and untracked files; and
+   path-traversal protection on the per-file diff endpoint. Acceptance: a
+   500-file work unit stays responsive, the page does not grow thousands of
+   pixels taller than the viewport, large diffs load on demand, and no Git
+   operation mutates the repository.
 5. Decide from usage whether the agent channel should stay observational.
    Control surfaces such as steering, approval, and cancellation require the AHP
    reducer spike first; that spike still has no definition in this repository.
@@ -34,13 +37,19 @@
 - Cursor has no transcript to read. If its activity matters, the only observable
   surface found so far is the VS Code SQLite database, which is undocumented and
   version-fragile. Treat it as a separate spike, not a quick addition.
-- First-snapshot latency grows with the number of registered worktrees. If it
-  becomes annoying, serve a partial snapshot before the first Git pass finishes
-  rather than making inspection lazy. The five-second target in the launch
-  contract is the acceptance bar.
+- M7 (agent activity reliability, UX, and privacy) is implemented: the public
+  `AgentSession` no longer carries `sourcePath` (schema is now `0.4.0-beta.0`),
+  the UI renders working/stalled/idle/no-signal as four distinct states with
+  advisory copy, and the reader degrades to no signal on changed or unreadable
+  formats. Record the stalled-threshold behavior during the kill test before
+  tuning the three minutes.
+- First-snapshot latency is eliminated by M2: on the reference benchmark
+  dataset (twenty worktrees, five with five-hundred-file diffs) a cold start
+  serves the shell in about 130 ms, the first partial in about 1.6 s, and a
+  fully fresh snapshot in about 4.4 s. Re-measure with `pnpm benchmark:startup`.
 - The changed-files panel renders one row per changed file. The 500-file fixture
   in `apps/web/src/fixtures` makes this visible; page or virtualize the file list
-  to hold the "no diff row explosion" contract target.
+  to hold the "no diff row explosion" contract target. This is part of M5.
 - New UI modules should own a directory under `apps/web/src/features/` and be
   registered in `App.tsx`, extending `src/fixtures/workspaces.ts` when a new
   contract state needs a development surface. Shared styling lives in
@@ -55,3 +64,12 @@
   synthesizes lightweight views without Git inspection. If an archived unit later
   needs full review evidence again, restore it first — the archived view is
   intentionally read-only and cheap.
+- The "Run required checks" workflow loops over approved required gates
+  client-side. If a repository carries many gates, add a host batch-run endpoint
+  instead of extending the loop.
+- Advisory (non-required) checks render and run, but merge readiness only reflects
+  required ones. Decide from usage whether advisory failures should surface in the
+  review summary's attention panel.
+- Check-state and readiness derivations live in
+  `apps/web/src/features/gates/gateStatus.ts`; future UI surfaces (diff gate
+  badges, approval summaries) should reuse them rather than re-derive states.

@@ -37,8 +37,19 @@ reducer spike has not run.
 - `.review-workspace-gates.json` is read only as a hash-stamped proposal. A user
   must explicitly approve it before the host persists or executes the gate.
 - Ranked queue, evidence panels, unified diff, reviewed-file tracking, trusted
-  gate management and logs, ordered SSE snapshots, and periodic plus watched
-  reconciliation.
+  gate management and logs, ordered SSE snapshots, and watched reconciliation.
+- The HTTP server starts before the first Git pass, so the shell is available
+  almost immediately; reconciliation runs in the background and publishes
+  ordered partial snapshots as each work unit completes.
+- Filesystem changes reinspect only the affected worktree, coalesced and
+  debounced by path. Git inspection is bounded to four concurrent processes.
+  Agent activity re-derives on a periodic timer from cached Git evidence, so
+  `working` decays to `stalled` without reinspecting every worktree.
+- Snapshots expose `status` (`fresh`/`inspecting`/`stale`) plus `inspectedAt`
+  and `staleReason`. A change awaiting reinspection, a degraded watch path, or
+  a failed inspection marks the workspace `stale` so readiness is never
+  presented as current on stale evidence. Degraded watch paths fall back to
+  periodic Git polling.
 - The web app is decomposed into feature directories under `apps/web/src/features`
   (workspace-queue, review, gates, activity, registration) with shared components
   under `components/`, a fixture registry under `fixtures/`, and styles split
@@ -59,6 +70,15 @@ reducer spike has not run.
   and an explicit Unregister (files untouched) are available from the queue and
   the detail pane. First-run onboarding and per-view empty states guide a fresh
   workspace.
+- The trusted-check experience is guided and evidence-backed: per-repository setup
+  with a pre-approval preview of the exact command, directory, timeout, and
+  requirement; repository proposals are promoted but inert until approval and
+  never auto-run; "Run required checks" runs each approved required gate in order;
+  check results render five visually distinct states (missing, running, passed,
+  failed, stale) with a controlled output drawer; and a blocked merge readiness
+  always states the next required action. Merge ready is shown only from the host's
+  readiness verdict, which requires Git and every required current check to agree;
+  internal numeric risk scores never reach the UI.
 - CLI refuses `--lan`; LAN access remains closed until Phase 0b security exists.
 - CLI accepts pnpm's standalone `--` argument separator, so the documented
   root-level start command forwards host options correctly.
@@ -81,6 +101,19 @@ reducer spike has not run.
   each session reports, and reduced to `working`, `stalled`, `idle`, or
   `unknown`. Only the file tail is read, results are cached by mtime, and the
   state is re-derived every pass so `working` decays to `stalled` on time alone.
+  Privacy boundary (M7): sessions expose no message content, tool output, or raw
+  transcript path — `sourcePath` was removed from the public `AgentSession` (a
+  breaking schema change to `0.4.0-beta.0`), and a changed or unrecognized
+  transcript format degrades to `unknown` rather than a guess.
+- Agent activity is advisory and legible (M7). The web UI renders all four states
+  as distinct pills, including a muted `no signal` pill instead of hiding the
+  unknown state; `idle` is worded as a turn that *ended*, never as finished or
+  correct; and the activity panel carries a standing note that a transcript only
+  reports what the agent says it did, never affects merge readiness, and that
+  Cursor is not observed because it does not write transcript files. The web
+  shows only a bounded session id, never a transcript path. Codex and Claude Code
+  reader fixtures cover realistic full turns, aborts, tool output, and unreadable
+  formats.
 - A worktree whose agent is mid-turn drops to the bottom of the queue; one whose
   agent stopped mid-turn is raised. Activity never affects merge readiness.
 - The watcher survives an unreadable path instead of taking the host down.
@@ -94,14 +127,18 @@ reducer spike has not run.
 ## Verification evidence
 
 - TypeScript checks pass for the schema, adapter API, host, and web app.
-- Thirty-seven host tests pass, covering CLI argument forwarding, risk evidence,
+- Forty-nine host tests pass, covering CLI argument forwarding, risk evidence,
   exact gate binding, native Git inspection, clean-branch merge checks, unchanged
-  gate reuse, stale invalidation, untrusted repo gate proposals, seven agent
-  activity cases (open and closed Codex turns, an open Claude Code tool call, an
-  open turn that stopped writing, discovery-window expiry, sibling directories
-  that share a name prefix, and most-specific worktree binding), the store
-  migration, and the work-unit archive API including the archived listing
-  endpoint.
+  gate reuse, stale invalidation, untrusted repo gate proposals, the store
+  migration, the work-unit archive API including the archived listing endpoint,
+  incremental reconciliation, and fourteen agent activity cases (open, closed,
+  and aborted Codex turns with realistic message and tool-output fixtures, open
+  and closed Claude Code turns with realistic content blocks, open turns that
+  stopped writing, the three-minute staleness boundary, discovery-window expiry,
+  unrecognized-format degradation to no signal, non-JSON transcripts, readable
+  siblings beside an unreadable one, the privacy guarantee that message content
+  and tool output never reach a session, sibling directories that share a name
+  prefix, and most-specific worktree binding).
 - Observed live against eighteen registered worktrees: the workspace correctly
   reported the Claude Code session editing it as `working` with an open turn,
   demoted it to the lowest queue tier, and raised the matching attention item.
@@ -117,14 +154,16 @@ reducer spike has not run.
 - Strict context validation passes.
 - Windows integration-test cleanup guarantees service shutdown, retries removal
   of temporarily locked SQLite directories, and uses a 15-second timeout.
-- Thirty-six web tests pass, covering empty, healthy, blocked, working/stalled
-  agent, archived, unavailable, 500-file, all four check-state fixtures, the
-  19-unit multi-repository dataset, plus global error, loading, queue selection,
-  view filtering and grouping, search, per-view counts, archive/restore/bulk
-  archive, diff-tab switching, the registration dialog, queueMeta derivations,
-  and the fixture harness.
-- Thirty-seven host tests pass, including the archive API suite and the archived
-  listing endpoint.
+- Fifty-nine web tests pass, covering empty, healthy, blocked, working/stalled
+  agent, no-signal, archived, unavailable, 500-file, all four check-state
+  fixtures, pending proposals, running checks, the 19-unit multi-repository
+  dataset, plus global error, loading, queue selection, view filtering and
+  grouping, search, per-view counts, archive/restore/bulk archive, diff-tab
+  switching, the registration dialog, queueMeta derivations, the four distinct
+  agent state labels, the advisory and Cursor copy, the agent-privacy guarantee,
+  trusted-check setup and preview, inert proposals, run-required-checks order,
+  the five distinct check states, the output drawer, blocked-readiness next
+  actions, evidence-gated "Merge ready", and the fixture harness.
 
 ## Run locally
 
@@ -158,8 +197,11 @@ worktrees. Gate arguments are entered one argument per line.
   degrades to `unknown` rather than guessing, so a format change looks like an
   absent agent. Watch for a work unit that reports no agent while one is clearly
   running.
-- Starting the host against eighteen worktrees takes roughly forty seconds of
-  CPU before the first snapshot, dominated by Git inspection of large diffs.
+- The pre-M2 forty-second first snapshot is gone. On the reference benchmark
+  dataset (twenty worktrees, five with five-hundred-file diffs) a cold start
+  serves the shell in about 130 ms, the first useful partial snapshot in about
+  1.6 s, and a fully fresh snapshot in about 4.4 s. Run
+  `pnpm benchmark:startup` to re-measure.
 - Node's `node:sqlite` experimental warning is filtered in the CLI. It is
   emitted while the import graph links, before user code runs, so the store,
   service, and server are imported dynamically after the filter is installed.

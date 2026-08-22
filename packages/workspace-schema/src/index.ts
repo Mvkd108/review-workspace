@@ -1,4 +1,15 @@
-export const WORKSPACE_SCHEMA_VERSION = '0.3.0-beta.1' as const;
+export const WORKSPACE_SCHEMA_VERSION = '0.4.0-beta.0' as const;
+
+/**
+ * How current the evidence in a snapshot is. `fresh` means every active work
+ * unit reflects the latest inspection; `inspecting` means a reconciliation is
+ * running and the snapshot contains partial or prior evidence; `stale` means
+ * the workspace cannot confirm current evidence (a change is awaiting
+ * reinspection, a watch path degraded, or an inspection failed) even though no
+ * reconciliation is in flight. Readiness claims must never be presented as
+ * current while the status is anything other than `fresh`.
+ */
+export type WorkspaceSnapshotStatus = 'fresh' | 'inspecting' | 'stale';
 
 export type WorkUnitKind = 'unmanaged' | 'managed';
 export type AgentLabel = 'claude-code' | 'cursor' | 'codex' | 'other';
@@ -45,20 +56,28 @@ export interface WorkUnit {
 /**
  * A single agent session observed through the agent's own transcript file.
  * The workspace reads these records; it never launches or controls the agent.
+ *
+ * This is advisory: a transcript reports what the agent believes it did, and
+ * activity never affects merge readiness. The raw transcript path is
+ * deliberately not part of the public contract, and message content and tool
+ * output never enter snapshots or this API.
  */
 export interface AgentSession {
   sessionId: string;
   agentLabel: AgentLabel;
   /** Working directory the session reported for itself. */
   cwd: string;
-  /** Transcript the state was derived from. */
-  sourcePath: string;
   state: AgentActivityState;
   lastActivityAt: string;
   /** False when the most recent turn has no completion record in the transcript. */
   lastTurnComplete: boolean;
 }
 
+/**
+ * Advisory agent state for a worktree, derived from agent-owned transcripts.
+ * It describes what an agent reports it is doing; only Git says what changed,
+ * so this never feeds merge readiness.
+ */
 export interface AgentActivity {
   state: AgentActivityState;
   lastActivityAt?: string;
@@ -169,6 +188,12 @@ export interface WorkspaceSnapshot {
   seq: number;
   generatedAt: string;
   workUnits: WorkUnitView[];
+  /** Evidence currency; absent means the snapshot predates the status model. */
+  status?: WorkspaceSnapshotStatus;
+  /** When this snapshot's evidence was last captured. */
+  inspectedAt?: string;
+  /** Human-readable reason when status is `stale`. */
+  staleReason?: string;
 }
 
 export interface WorkUnitRegistration {

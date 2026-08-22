@@ -17,17 +17,36 @@ import type {
   WorkUnitView,
   WorkspaceEvent,
   WorkspaceSnapshot,
+  WorkspaceSnapshotStatus,
 } from '@review-workspace/schema';
 import { WORKSPACE_SCHEMA_VERSION } from '@review-workspace/schema';
+import type { RepositoryInspection } from '@review-workspace/adapter-api';
 import { AgentActivityObserver, summarize } from './agent-activity.js';
 import { sha256, stableJson } from './hash.js';
 import { GitCliRepositoryAdapter } from './git-adapter.js';
 import { LocalProcessGateProvider } from './gate-provider.js';
 import { assessRisk } from './risk.js';
-import { WorkspaceStore } from './store.js';
+import { WorkspaceStore, isWithinPath } from './store.js';
 import { inferPathTokens } from './task-scope.js';
 
 type Subscriber = (event: WorkspaceEvent) => void;
+
+/** Bounded parallel map so a large workspace never spawns unbounded Git processes. */
+const INSPECTION_CONCURRENCY = 4;
+
+async function mapBounded<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await fn(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 function latestRunsByGate(runs: readonly GateRun[]): Map<string, GateRun> {
   const latest = new Map<string, GateRun>();
@@ -103,19 +122,42 @@ function queueTier(view: Omit<WorkUnitView, 'attention' | 'queueTier'>, mergeCon
 }
 
 export class WorkspaceService {
-  private readonly git = new GitCliRepositoryAdapter();
+  private readonly git: GitCliRepositoryAdapter;
   private readonly gates = new LocalProcessGateProvider();
   private readonly agents = new AgentActivityObserver();
   private readonly subscribers = new Set<Subscriber>();
-  private snapshot: WorkspaceSnapshot = { schemaVersion: WORKSPACE_SCHEMA_VERSION, seq: 0, generatedAt: new Date().toISOString(), workUnits: [] };
+  /** Last published view per active work unit, so partial snapshots keep prior evidence. */
+  private readonly views = new Map<string, WorkUnitView>();
+  /** Cached Git inspection per work unit, reused by cheap agent-only refreshes. */
+  private readonly inspections = new Map<string, RepositoryInspection>();
+  private snapshot: WorkspaceSnapshot = {
+    schemaVersion: WORKSPACE_SCHEMA_VERSION,
+    seq: 0,
+    generatedAt: new Date().toISOString(),
+    workUnits: [],
+    status: 'stale',
+    inspectedAt: new Date().toISOString(),
+    staleReason: 'Waiting for the first reconciliation.',
+  };
   private watcher: FSWatcher | undefined;
   private interval: NodeJS.Timeout | undefined;
-  private debounce: NodeJS.Timeout | undefined;
-  private refreshing: Promise<WorkspaceSnapshot> | undefined;
-  /** Paths the watcher refused, reported once each instead of crashing the host. */
+  private refreshDebounce: NodeJS.Timeout | undefined;
+  private refreshing: Promise<void> | undefined;
+  /** Worktree paths with known changes not yet reinspected (coalesced watcher input). */
+  private readonly pendingPaths = new Set<string>();
+  private fullRefreshRequested = false;
+  private agentOnlyRequested = false;
+  /** Paths the watcher refused; the periodic tick covers them by Git polling. */
   private readonly watchFailures = new Set<string>();
+  /** Watcher errors that could not be mapped to a registered path, reported once. */
+  private readonly degradedUnknownMessages = new Set<string>();
+  private degradedUnknown = false;
+  /** Paths whose last Git inspection failed. */
+  private readonly inspectionFailures = new Set<string>();
 
-  constructor(readonly store: WorkspaceStore) {}
+  constructor(readonly store: WorkspaceStore, deps: { git?: GitCliRepositoryAdapter } = {}) {
+    this.git = deps.git ?? new GitCliRepositoryAdapter();
+  }
 
   current(): WorkspaceSnapshot {
     return this.snapshot;
@@ -155,33 +197,83 @@ export class WorkspaceService {
       ignored: [/(^|[\\/])\.git([\\/]|$)/, /(^|[\\/])node_modules([\\/]|$)/, /(^|[\\/])dist([\\/]|$)/],
       awaitWriteFinish: { stabilityThreshold: 350, pollInterval: 100 },
     });
-    this.watcher.on('all', () => this.scheduleRefresh());
+    this.watcher.on('all', (_event, changedPath) => {
+      if (typeof changedPath === 'string') this.handleWorktreeChange(changedPath);
+    });
     // One unreadable path must not take the host down with it. Windows raises EPERM
     // on realpath for locked directories, and chokidar surfaces that as an error
-    // event that would otherwise go unhandled and kill the process. Git inspection
-    // still covers the worktree; only change notifications are lost for that path.
+    // event that would otherwise go unhandled and kill the process. The periodic
+    // tick re-inspects the affected path directly, so it degrades to polling
+    // rather than losing the work unit.
     this.watcher.on('error', (error) => {
       const message = error instanceof Error ? error.message : String(error);
-      if (this.watchFailures.has(message)) return;
-      this.watchFailures.add(message);
+      const affectedPath = this.matchWatchPath(message);
+      if (affectedPath) {
+        if (this.watchFailures.has(affectedPath)) return;
+        this.watchFailures.add(affectedPath);
+      } else {
+        if (this.degradedUnknownMessages.has(message)) return;
+        this.degradedUnknownMessages.add(message);
+        this.degradedUnknown = true;
+      }
       process.stderr.write(`Watch degraded to polling for one path: ${message}\n`);
+      this.publishSnapshot('stale');
     });
-    this.interval = setInterval(() => void this.refresh(), 15_000);
+    this.interval = setInterval(() => void this.tick(), 15_000);
     this.interval.unref();
-    await this.refresh();
+    // First reconciliation runs in the background and publishes partial
+    // snapshots as each work unit completes; the shell was already available.
+    void this.refresh();
+  }
+
+  private async tick(): Promise<void> {
+    await this.drainRefresh();
+    if (this.watchFailures.size > 0) await this.refresh({ worktreePaths: [...this.watchFailures] });
+    if (this.degradedUnknown) {
+      this.degradedUnknown = false;
+      await this.refresh();
+    }
+    await this.refresh({ agentOnly: true });
+  }
+
+  /** Recover the degraded worktree path from a watcher error message, if any. */
+  private matchWatchPath(message: string): string | undefined {
+    for (const unit of this.store.listWorkUnits()) {
+      if (message.includes(unit.worktreePath) || message.includes(unit.worktreePath.replaceAll('\\', '/'))) return unit.worktreePath;
+    }
+    return undefined;
   }
 
   async stop(): Promise<void> {
     if (this.interval) clearInterval(this.interval);
-    if (this.debounce) clearTimeout(this.debounce);
+    if (this.refreshDebounce) clearTimeout(this.refreshDebounce);
     await this.watcher?.close();
     this.store.close();
   }
 
-  private scheduleRefresh(): void {
-    if (this.debounce) clearTimeout(this.debounce);
-    this.debounce = setTimeout(() => void this.refresh(), 500);
-    this.debounce.unref();
+  /** Public for tests and watcher wiring: a file changed and must be reinspected. */
+  handleWorktreeChange(changedPath: string): void {
+    if (!changedPath) return;
+    const worktreePath = this.matchWorktreePath(changedPath);
+    if (!worktreePath) return;
+    this.pendingPaths.add(worktreePath);
+    if (this.refreshDebounce) return;
+    this.refreshDebounce = setTimeout(() => {
+      this.refreshDebounce = undefined;
+      this.publishSnapshot('stale');
+      // Drain the coalesced pending paths; do not escalate to a full refresh.
+      void this.drainRefresh();
+    }, 300);
+    this.refreshDebounce.unref();
+  }
+
+  /** Map a changed file path back to the registered worktree that contains it. */
+  private matchWorktreePath(changedPath: string): string | undefined {
+    const normalized = path.resolve(changedPath);
+    for (const unit of this.store.listWorkUnits()) {
+      if (isWithinPath(normalized, unit.worktreePath)) return unit.worktreePath;
+    }
+    return undefined;
   }
 
   async register(input: WorkUnitRegistration): Promise<WorkUnit> {
@@ -213,15 +305,21 @@ export class WorkspaceService {
     };
     this.store.saveWorkUnit(workUnit);
     this.watcher?.add(workUnit.worktreePath);
-    await this.refresh();
+    await this.refresh({ worktreePaths: [workUnit.worktreePath] });
     return workUnit;
   }
 
   async unregister(id: string): Promise<boolean> {
     const unit = this.store.getWorkUnit(id);
     const removed = this.store.unregisterWorkUnit(id);
-    if (removed && unit) await this.watcher?.unwatch(unit.worktreePath);
-    await this.refresh();
+    if (removed && unit) {
+      await this.watcher?.unwatch(unit.worktreePath);
+      this.views.delete(id);
+      this.inspections.delete(id);
+      this.watchFailures.delete(unit.worktreePath);
+      this.git.forgetCachedDiff(id);
+      this.publishSnapshot(this.currentStaleness());
+    }
     return removed;
   }
 
@@ -230,7 +328,9 @@ export class WorkspaceService {
     if (!unit) return undefined;
     this.store.setVisibility(id, 'archived');
     await this.watcher?.unwatch(unit.worktreePath);
-    await this.refresh();
+    this.views.delete(id);
+    this.inspections.delete(id);
+    this.publishSnapshot(this.currentStaleness());
     return this.store.getWorkUnit(id, { includeArchived: true });
   }
 
@@ -239,7 +339,7 @@ export class WorkspaceService {
     if (!unit) return undefined;
     this.store.setVisibility(id, 'active');
     this.watcher?.add(unit.worktreePath);
-    await this.refresh();
+    await this.refresh({ worktreePaths: [unit.worktreePath] });
     return this.store.getWorkUnit(id);
   }
 
@@ -248,8 +348,10 @@ export class WorkspaceService {
     for (const id of affected) {
       const unit = this.store.getWorkUnit(id, { includeArchived: true });
       if (unit) await this.watcher?.unwatch(unit.worktreePath);
+      this.views.delete(id);
+      this.inspections.delete(id);
     }
-    await this.refresh();
+    this.publishSnapshot(this.currentStaleness());
     return affected;
   }
 
@@ -273,7 +375,7 @@ export class WorkspaceService {
       approvedAt: new Date().toISOString(),
     };
     this.store.saveGateDefinition(gate);
-    await this.refresh();
+    await this.refresh({ worktreePaths: [unit.worktreePath] });
     return gate;
   }
 
@@ -286,7 +388,7 @@ export class WorkspaceService {
     if (!force && existing && existing.definitionHash === gate.definitionHash && existing.worktreeFingerprint === inspected.change.fingerprint) return existing;
     const run = await this.gates.run(unit, gate, inspected.change.fingerprint);
     this.store.saveGateRun(run);
-    await this.refresh();
+    await this.refresh({ worktreePaths: [unit.worktreePath] });
     return run;
   }
 
@@ -295,14 +397,14 @@ export class WorkspaceService {
     const gate = this.store.getGateDefinition(gateId);
     if (!gate || gate.repositoryId !== unit.repositoryId) return false;
     const removed = this.store.removeGateDefinition(gateId);
-    await this.refresh();
+    if (removed) await this.refresh({ worktreePaths: [unit.worktreePath] });
     return removed;
   }
 
   async setReviewed(workUnitId: string, input: ReviewedFilesInput): Promise<void> {
-    this.requireUnit(workUnitId);
+    const unit = this.requireUnit(workUnitId);
     this.store.setFilesReviewed(workUnitId, input.files, input.reviewed);
-    await this.refresh();
+    await this.refresh({ worktreePaths: [unit.worktreePath] });
   }
 
   async diff(workUnitId: string): Promise<string> {
@@ -311,10 +413,21 @@ export class WorkspaceService {
     return this.git.getCachedDiff(workUnitId) ?? '';
   }
 
-  async refresh(): Promise<WorkspaceSnapshot> {
-    if (this.refreshing) return this.refreshing;
-    this.refreshing = this.performRefresh().finally(() => { this.refreshing = undefined; });
-    return this.refreshing;
+  /**
+   * Reconcile the workspace. With `worktreePaths` only those worktrees are
+   * reinspected; without them every active work unit is inspected. `agentOnly`
+   * re-derives agent activity from cached Git evidence without running Git.
+   * No-op reconciliations never advance the snapshot sequence.
+   */
+  async refresh(options?: { worktreePaths?: readonly string[]; agentOnly?: boolean }): Promise<void> {
+    if (options?.worktreePaths?.length) {
+      for (const changedPath of options.worktreePaths) this.pendingPaths.add(changedPath);
+    } else if (options?.agentOnly) {
+      this.agentOnlyRequested = true;
+    } else {
+      this.fullRefreshRequested = true;
+    }
+    return this.drainRefresh();
   }
 
   /** Agent observation is advisory; a failure here must not break the repo channel. */
@@ -326,70 +439,160 @@ export class WorkspaceService {
     }
   }
 
-  private async performRefresh(): Promise<WorkspaceSnapshot> {
-    const units = this.store.listWorkUnits();
-    const byWorktree = this.agents.index(await this.collectAgentSessions(), units.map((unit) => unit.worktreePath));
-    const views = await Promise.all(units.map((unit) => this.buildView(unit, summarize(byWorktree.get(unit.worktreePath) ?? []))));
-    views.sort((a, b) => a.queueTier - b.queueTier || b.risk.sortScore - a.risk.sortScore || Date.parse(a.workUnit.createdAt) - Date.parse(b.workUnit.createdAt));
-    if (stableJson(views) === stableJson(this.snapshot.workUnits)) return this.snapshot;
+  private async drainRefresh(): Promise<void> {
+    // Wait for any in-flight loop rather than dropping the request; the loop
+    // re-checks the queues each iteration, so work enqueued while it runs is
+    // still picked up.
+    while (this.refreshing) await this.refreshing;
+    if (this.pendingPaths.size === 0 && !this.fullRefreshRequested && !this.agentOnlyRequested) return;
+    this.refreshing = (async () => {
+      while (this.pendingPaths.size > 0 || this.fullRefreshRequested || this.agentOnlyRequested) {
+        if (this.fullRefreshRequested) {
+          this.fullRefreshRequested = false;
+          await this.performRefresh();
+        } else if (this.agentOnlyRequested) {
+          this.agentOnlyRequested = false;
+          await this.refreshAgentActivity();
+        } else {
+          const changedPaths = [...this.pendingPaths];
+          this.pendingPaths.clear();
+          await this.performRefresh(changedPaths);
+        }
+      }
+    })().finally(() => {
+      this.refreshing = undefined;
+    });
+    await this.refreshing;
+  }
+
+  private currentStaleness(): WorkspaceSnapshotStatus {
+    return this.pendingPaths.size > 0 || this.watchFailures.size > 0 || this.degradedUnknown || this.inspectionFailures.size > 0 ? 'stale' : 'fresh';
+  }
+
+  private staleReasonText(): string {
+    if (this.pendingPaths.size > 0) return 'Changes are awaiting reinspection.';
+    if (this.watchFailures.size > 0) return `Watch degraded for ${this.watchFailures.size} path${this.watchFailures.size === 1 ? '' : 's'}; Git polling covers them.`;
+    if (this.inspectionFailures.size > 0) return `Inspection failed for ${this.inspectionFailures.size} path${this.inspectionFailures.size === 1 ? '' : 's'}.`;
+    if (this.degradedUnknown) return 'Watch degraded for an unidentified path; Git polling covers it.';
+    return 'Evidence currency cannot be confirmed.';
+  }
+
+  /**
+   * Build and publish a full snapshot from the cached views. Unchanged evidence
+   * with an unchanged status does not advance the sequence. Views for units that
+   * are no longer active are pruned so the map cannot grow without bound.
+   */
+  private publishSnapshot(status: WorkspaceSnapshotStatus, staleReason?: string): void {
+    const activeUnits = this.store.listWorkUnits();
+    const activeIds = new Set(activeUnits.map((unit) => unit.id));
+    for (const id of [...this.views.keys()]) if (!activeIds.has(id)) this.views.delete(id);
+    const workUnits = activeUnits
+      .map((unit) => this.views.get(unit.id))
+      .filter((view): view is WorkUnitView => Boolean(view))
+      .sort((a, b) => a.queueTier - b.queueTier || b.risk.sortScore - a.risk.sortScore || Date.parse(a.workUnit.createdAt) - Date.parse(b.workUnit.createdAt));
+    const reason = status === 'stale' ? (staleReason ?? this.staleReasonText()) : undefined;
+    if (stableJson(workUnits) === stableJson(this.snapshot.workUnits) && this.snapshot.status === status && this.snapshot.staleReason === reason) return;
+    const inspectedAt = new Date().toISOString();
     this.snapshot = {
       schemaVersion: WORKSPACE_SCHEMA_VERSION,
       seq: this.snapshot.seq + 1,
-      generatedAt: new Date().toISOString(),
-      workUnits: views,
+      generatedAt: inspectedAt,
+      workUnits,
+      status,
+      inspectedAt,
+      ...(reason ? { staleReason: reason } : {}),
     };
     const event: WorkspaceEvent = { type: 'workspace.snapshot', seq: this.snapshot.seq, snapshot: this.snapshot };
     for (const subscriber of this.subscribers) subscriber(event);
-    return this.snapshot;
   }
 
-  private async buildView(unit: WorkUnit, agentActivity: AgentActivity): Promise<WorkUnitView> {
-    try {
-      const inspected = await this.git.inspect(unit, this.store.reviewedFiles(unit.id));
-      const gateDefinitions = this.store.listGateDefinitions(unit.repositoryId);
-      const gateProposals = await this.readGateProposals(unit);
-      const latestRuns = latestRunsByGate(this.store.listGateRuns(unit.id));
-      const visibleRuns = gateDefinitions.flatMap((gate) => {
-        const run = latestRuns.get(gate.id);
-        if (!run) return [];
-        if (run.definitionHash !== gate.definitionHash || run.worktreeFingerprint !== inspected.change.fingerprint) return [{ ...run, status: 'stale' as const }];
-        return [run];
-      });
-      const risk = assessRisk({
-        change: inspected.change,
-        scope: unit.scope,
-        baseMissing: !inspected.change.baseCommit,
-        mergeConflict: inspected.mergeConflict,
-        gates: gateDefinitions,
-        latestRuns,
-      });
-      const readiness = mergeReadiness(inspected.change, inspected.mergeConflict, gateDefinitions, latestRuns);
-      const nextUnit: WorkUnit = {
-        ...unit,
-        repositoryId: inspected.repositoryId,
-        repositoryRoot: inspected.repositoryRoot,
-        branch: inspected.branch,
-        lifecycle: 'observing',
-        updatedAt: inspected.change.lastChangedAt,
-      };
-      this.store.saveWorkUnit(nextUnit);
-      const partial = { workUnit: nextUnit, change: inspected.change, agentActivity, risk, mergeReadiness: readiness, gateDefinitions, gateProposals, gateRuns: visibleRuns };
-      return { ...partial, attention: attentionFor(partial, inspected.mergeConflict), queueTier: queueTier(partial, inspected.mergeConflict) };
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      const unavailable: WorkUnit = { ...unit, lifecycle: 'unavailable' };
-      const partial = {
-        workUnit: unavailable,
-        change: null,
-        agentActivity,
-        risk: { level: 'high' as const, sortScore: 100, reasons: [{ code: 'worktree.unavailable', label: 'Worktree unavailable', detail, weight: 100 }] },
-        mergeReadiness: { status: 'unknown' as const, reasons: [detail] },
-        gateDefinitions: this.store.listGateDefinitions(unit.repositoryId),
-        gateProposals: [],
-        gateRuns: this.store.listGateRuns(unit.id),
-      };
-      return { ...partial, attention: attentionFor(partial, null), queueTier: 0 };
+  private async performRefresh(changedPaths?: readonly string[]): Promise<void> {
+    const units = this.store.listWorkUnits();
+    const targets = changedPaths === undefined ? units : units.filter((unit) => changedPaths.includes(unit.worktreePath));
+    const sessions = await this.collectAgentSessions();
+    const byWorktree = this.agents.index(sessions, units.map((unit) => unit.worktreePath));
+    const multiUnit = targets.length > 1;
+    await mapBounded(targets, INSPECTION_CONCURRENCY, async (unit) => {
+      const activity = summarize(byWorktree.get(unit.worktreePath) ?? []);
+      try {
+        const inspection = await this.git.inspect(unit, this.store.reviewedFiles(unit.id));
+        this.inspections.set(unit.id, inspection);
+        this.inspectionFailures.delete(unit.worktreePath);
+        this.watchFailures.delete(unit.worktreePath);
+        this.views.set(unit.id, await this.buildView(unit, inspection, activity));
+      } catch (error) {
+        this.inspections.delete(unit.id);
+        this.inspectionFailures.add(unit.worktreePath);
+        this.views.set(unit.id, await this.buildUnavailableView(unit, activity, error));
+      }
+      if (multiUnit) await this.publishSnapshot('inspecting');
+    });
+    await this.publishSnapshot(this.currentStaleness());
+  }
+
+  /** Cheap pass: re-derive agent activity from cached Git evidence. */
+  private async refreshAgentActivity(): Promise<void> {
+    const units = this.store.listWorkUnits();
+    if (units.length === 0) return;
+    const sessions = await this.collectAgentSessions();
+    const byWorktree = this.agents.index(sessions, units.map((unit) => unit.worktreePath));
+    for (const unit of units) {
+      const inspection = this.inspections.get(unit.id);
+      const existing = this.views.get(unit.id);
+      if (!inspection || !existing) continue;
+      const activity = summarize(byWorktree.get(unit.worktreePath) ?? []);
+      if (stableJson(activity) === stableJson(existing.agentActivity)) continue;
+      this.views.set(unit.id, await this.buildView(unit, inspection, activity));
     }
+    await this.publishSnapshot(this.currentStaleness());
+  }
+
+  private async buildView(unit: WorkUnit, inspected: RepositoryInspection, agentActivity: AgentActivity): Promise<WorkUnitView> {
+    const gateDefinitions = this.store.listGateDefinitions(unit.repositoryId);
+    const gateProposals = await this.readGateProposals(unit);
+    const latestRuns = latestRunsByGate(this.store.listGateRuns(unit.id));
+    const visibleRuns = gateDefinitions.flatMap((gate) => {
+      const run = latestRuns.get(gate.id);
+      if (!run) return [];
+      if (run.definitionHash !== gate.definitionHash || run.worktreeFingerprint !== inspected.change.fingerprint) return [{ ...run, status: 'stale' as const }];
+      return [run];
+    });
+    const risk = assessRisk({
+      change: inspected.change,
+      scope: unit.scope,
+      baseMissing: !inspected.change.baseCommit,
+      mergeConflict: inspected.mergeConflict,
+      gates: gateDefinitions,
+      latestRuns,
+    });
+    const readiness = mergeReadiness(inspected.change, inspected.mergeConflict, gateDefinitions, latestRuns);
+    const nextUnit: WorkUnit = {
+      ...unit,
+      repositoryId: inspected.repositoryId,
+      repositoryRoot: inspected.repositoryRoot,
+      branch: inspected.branch,
+      lifecycle: 'observing',
+      updatedAt: inspected.change.lastChangedAt,
+    };
+    this.store.saveWorkUnit(nextUnit);
+    const partial = { workUnit: nextUnit, change: inspected.change, agentActivity, risk, mergeReadiness: readiness, gateDefinitions, gateProposals, gateRuns: visibleRuns };
+    return { ...partial, attention: attentionFor(partial, inspected.mergeConflict), queueTier: queueTier(partial, inspected.mergeConflict) };
+  }
+
+  private async buildUnavailableView(unit: WorkUnit, agentActivity: AgentActivity, error: unknown): Promise<WorkUnitView> {
+    const detail = error instanceof Error ? error.message : String(error);
+    const unavailable: WorkUnit = { ...unit, lifecycle: 'unavailable' };
+    const partial = {
+      workUnit: unavailable,
+      change: null,
+      agentActivity,
+      risk: { level: 'high' as const, sortScore: 100, reasons: [{ code: 'worktree.unavailable', label: 'Worktree unavailable', detail, weight: 100 }] },
+      mergeReadiness: { status: 'unknown' as const, reasons: [detail] },
+      gateDefinitions: this.store.listGateDefinitions(unit.repositoryId),
+      gateProposals: [],
+      gateRuns: this.store.listGateRuns(unit.id),
+    };
+    return { ...partial, attention: attentionFor(partial, null), queueTier: 0 };
   }
 
   private requireUnit(id: string): WorkUnit {

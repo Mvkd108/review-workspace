@@ -139,6 +139,17 @@ state and one recommended next action. This keeps historical registrations out o
 the daily queue without hiding them; the derivation lives in
 `apps/web/src/features/workspace-queue/queueMeta.ts`.
 
+## 2026-08-22 — Merge readiness is rendered as evidence, never as a score
+
+The web app renders the contract's five check states (missing, running, passed,
+failed, stale), the host's merge-readiness verdict, and concrete reasons. It never
+renders internal numeric risk scores. The "Merge ready" label appears only from a
+host readiness verdict of ready, which requires clean, conflict-free Git state and
+every required trusted check current and passed. Repository-supplied proposals
+are promoted but inert until the operator approves them; nothing suggested by a
+branch ever executes automatically. The derivations live in
+`apps/web/src/features/gates/gateStatus.ts`.
+
 ## 2026-08-22 — Archived work is a read surface, never a deletion path
 
 Archived work units are excluded from the live snapshot. The web app reads them
@@ -180,3 +191,40 @@ refresh saves never overwrite it. `WorkUnit.lifecycle` is now only
 `mergeReadiness` and attention, never in lifecycle, which removes the
 contradiction where a blocked work unit with changed files reported itself
 `ready-for-review`.
+
+## 2026-08-22 — M2: the HTTP server precedes reconciliation
+
+The CLI starts the server before the first Git pass and reconciles in the
+background, so the UI shell answers immediately instead of after the first
+snapshot. A failed service start closes the server before rethrowing. The
+transport stays full ordered `workspace.snapshot` events; partial progress is
+published as complete snapshots, never as a new event type.
+
+## 2026-08-22 — M2: snapshots are incremental and evidence-statused
+
+Reconciliation inspects only the worktrees that changed, coalescing watcher
+events by path with a debounce; no-op reconciliations do not advance the
+sequence. Git inspection is bounded to four concurrent processes. The periodic
+timer re-derives agent activity from cached inspections and polls degraded watch
+paths instead of re-inspecting everything. Snapshots carry
+`status` (`fresh`/`inspecting`/`stale`), `inspectedAt`, and `staleReason`; a
+pending change, degraded watch, or failed inspection marks the snapshot stale so
+readiness is never presented as current on stale evidence.
+
+## 2026-08-23 — M7: agent activity is advisory, legible, and path-free
+
+- The public `AgentSession` no longer carries `sourcePath`. The host still needs
+  the transcript path internally for discovery, caching, and binding, but the
+  raw path is not part of the contract. This is a breaking schema change:
+  `WORKSPACE_SCHEMA_VERSION` is now `0.4.0-beta.0` across the types, JSON
+  Schema, OpenAPI document, and contract test.
+- Message content and tool output were never copied into sessions and still are
+  not; a regression test now locks that boundary and the exact public field set.
+- The web UI renders all four states, including a distinct muted `no signal`
+  pill instead of hiding the unknown state. `idle` is described as a turn that
+  *ended*, never as finished or correct, and the panel carries a standing note
+  that activity never affects merge readiness.
+- Cursor stays explicitly unsupported: it writes no transcript files, so no
+  guess is made about its activity.
+- The three-minute stalled threshold is unchanged. It is not tuned until usage
+  evidence justifies it; a boundary test locks the current behavior.

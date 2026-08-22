@@ -1,13 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://review-workspace.dev/schema/0.3.0-beta.1/workspace.schema.json",
+  "$id": "https://review-workspace.dev/schema/0.4.0-beta.0/workspace.schema.json",
   "title": "Review Workspace Snapshot",
   "type": "object",
   "required": ["schemaVersion", "seq", "generatedAt", "workUnits"],
   "properties": {
-    "schemaVersion": { "const": "0.3.0-beta.1" },
+    "schemaVersion": { "const": "0.4.0-beta.0" },
     "seq": { "type": "integer", "minimum": 0 },
     "generatedAt": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["fresh", "inspecting", "stale"] },
+    "inspectedAt": { "type": "string", "format": "date-time" },
+    "staleReason": { "type": "string" },
     "workUnits": {
       "type": "array",
       "items": { "$ref": "#/$defs/workUnitView" }
@@ -68,12 +71,11 @@
     },
     "agentSession": {
       "type": "object",
-      "required": ["sessionId", "agentLabel", "cwd", "sourcePath", "state", "lastActivityAt", "lastTurnComplete"],
+      "required": ["sessionId", "agentLabel", "cwd", "state", "lastActivityAt", "lastTurnComplete"],
       "properties": {
         "sessionId": { "type": "string", "minLength": 1 },
         "agentLabel": { "enum": ["claude-code", "cursor", "codex", "other"] },
         "cwd": { "type": "string" },
-        "sourcePath": { "type": "string" },
         "state": { "enum": ["working", "idle", "stalled", "unknown"] },
         "lastActivityAt": { "type": "string", "format": "date-time" },
         "lastTurnComplete": { "type": "boolean" }

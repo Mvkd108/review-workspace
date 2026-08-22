@@ -184,6 +184,10 @@ export class GitCliRepositoryAdapter implements RepositoryAdapter {
     return this.diffCache.get(workUnitId);
   }
 
+  forgetCachedDiff(workUnitId: string): void {
+    this.diffCache.delete(workUnitId);
+  }
+
   async inspect(workUnit: WorkUnit, reviewedFiles: ReadonlySet<string>): Promise<RepositoryInspection> {
     const cwd = workUnit.worktreePath;
     const identity = await this.resolveIdentity(cwd, workUnit.baseRef);
