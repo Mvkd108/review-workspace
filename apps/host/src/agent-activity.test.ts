@@ -33,16 +33,51 @@ async function writeTranscript(filePath: string, entries: unknown[], ageMs = 0):
   }
 }
 
-const codexTurn = (cwd: string, complete: boolean) => [
-  { type: 'session_meta', payload: { session_id: 'abc', cwd } },
-  { type: 'event_msg', payload: { type: 'task_started' } },
-  { type: 'response_item', payload: { type: 'function_call' } },
-  ...(complete ? [{ type: 'event_msg', payload: { type: 'task_complete' } }] : []),
+// --- Codex JSONL fixture shapes -------------------------------------------------
+
+const codexSessionMeta = (cwd: string) => ({ type: 'session_meta', payload: { session_id: 'sess-abc', cwd } });
+const codexTurnStart = { type: 'event_msg', payload: { type: 'task_started', timestamp: '2026-08-20T12:00:00.000Z' } };
+const codexTurnComplete = { type: 'event_msg', payload: { type: 'task_complete', timestamp: '2026-08-20T12:05:00.000Z' } };
+const codexTurnAborted = { type: 'event_msg', payload: { type: 'turn_aborted', timestamp: '2026-08-20T12:02:00.000Z' } };
+const codexMessage = (text: string) => ({
+  type: 'response_item', payload: { type: 'message', message: { role: 'assistant', content: [{ type: 'text', text }] } },
+});
+const codexFunctionCall = { type: 'response_item', payload: { type: 'function_call', name: 'Read', arguments: '{"path":"src/api/client.ts"}' } };
+const codexFunctionOutput = (output: string) => ({
+  type: 'response_item', payload: { type: 'function_call_output', call_id: 'call_1', output },
+});
+
+/** A realistic full Codex rollout: header, turn markers, assistant messages, and a tool call with output. */
+const codexTurn = (cwd: string, complete: boolean): unknown[] => [
+  codexSessionMeta(cwd),
+  codexTurnStart,
+  codexMessage('I will add retry handling to the API client.'),
+  codexFunctionCall,
+  codexFunctionOutput('export class ApiClient {\n  async get(url) { return fetch(url); }\n}'),
+  codexMessage('Done.'),
+  ...(complete ? [codexTurnComplete] : []),
 ];
 
-const claudeCodeTurn = (cwd: string, complete: boolean) => [
-  { type: 'user', cwd, message: { role: 'user', content: 'do the thing' } },
-  { type: 'assistant', cwd, message: { role: 'assistant', stop_reason: complete ? 'end_turn' : 'tool_use' } },
+// --- Claude Code JSONL fixture shapes ---------------------------------------------
+
+const claudeUser = (cwd: string, text = 'do the thing'): unknown => ({
+  parentUuid: 'root', isSidechain: false, userType: 'external', cwd, sessionId: 'sess-xyz', version: '2.1.0',
+  type: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, uuid: 'u1', timestamp: '2026-08-20T13:00:00.000Z',
+});
+const claudeAssistant = (cwd: string, content: unknown[], stopReason: string): unknown => ({
+  parentUuid: 'u1', isSidechain: false, cwd, sessionId: 'sess-xyz', version: '2.1.0',
+  type: 'assistant', message: { role: 'assistant', content, model: 'claude-sonnet-4', stop_reason: stopReason },
+  uuid: 'u2', timestamp: '2026-08-20T13:00:05.000Z',
+});
+const claudeText = (text: string) => ({ type: 'text', text });
+const claudeToolUse = (command: string) => ({ type: 'tool_use', name: 'Bash', input: { command }, tool_use_id: 't1' });
+
+/** A realistic Claude Code turn: a user request, a text reply, a Bash tool call, and an optional end_turn. */
+const claudeCodeTurn = (cwd: string, complete: boolean): unknown[] => [
+  claudeUser(cwd),
+  claudeAssistant(cwd, [claudeText('Let me look at the code first.')], 'tool_use'),
+  claudeAssistant(cwd, [claudeToolUse('git status')], 'tool_use'),
+  ...(complete ? [claudeAssistant(cwd, [claudeText('Done.')], 'end_turn')] : []),
 ];
 
 describe('Agent activity observation', () => {
@@ -58,6 +93,7 @@ describe('Agent activity observation', () => {
     expect(byCwd.get(path.resolve('C:/work/alpha'))?.state).toBe('working');
     expect(byCwd.get(path.resolve('C:/work/alpha'))?.lastTurnComplete).toBe(false);
     expect(byCwd.get(path.resolve('C:/work/beta'))?.state).toBe('idle');
+    expect(byCwd.get(path.resolve('C:/work/beta'))?.lastTurnComplete).toBe(true);
   });
 
   it('reads a trailing Claude Code tool call as an open turn', async () => {
@@ -74,6 +110,21 @@ describe('Agent activity observation', () => {
     expect(byCwd.get(path.resolve('C:/work/gamma'))?.agentLabel).toBe('claude-code');
   });
 
+  it('treats an aborted Codex turn as ended rather than open', async () => {
+    const { claudeCodeProjects, codexSessions } = await sources();
+    const day = path.join(codexSessions, '2026', '08', '20');
+    await writeTranscript(path.join(day, 'rollout-aborted.jsonl'), [
+      codexSessionMeta('C:/work/aborted'),
+      codexTurnStart,
+      codexMessage('Started before the abort.'),
+      codexTurnAborted,
+    ]);
+
+    const [session] = await new AgentActivityObserver({ claudeCodeProjects, codexSessions }).collect();
+    expect(session?.state).toBe('idle');
+    expect(session?.lastTurnComplete).toBe(true);
+  });
+
   it('reports an open turn that stopped writing as stalled rather than working', async () => {
     const { claudeCodeProjects, codexSessions } = await sources();
     const day = path.join(codexSessions, '2026', '08', '20');
@@ -84,12 +135,88 @@ describe('Agent activity observation', () => {
     expect(session?.lastTurnComplete).toBe(false);
   });
 
+  it('keeps the staleness threshold at three minutes of transcript silence', async () => {
+    const { claudeCodeProjects, codexSessions } = await sources();
+    const day = path.join(codexSessions, '2026', '08', '20');
+    await writeTranscript(path.join(day, 'recent.jsonl'), codexTurn('C:/work/fresh', false), 2 * 60_000);
+    await writeTranscript(path.join(day, 'silent.jsonl'), codexTurn('C:/work/silent', false), 4 * 60_000);
+
+    const sessions = await new AgentActivityObserver({ claudeCodeProjects, codexSessions }).collect();
+    const byCwd = new Map(sessions.map((session) => [path.resolve(session.cwd), session]));
+
+    expect(byCwd.get(path.resolve('C:/work/fresh'))?.state).toBe('working');
+    expect(byCwd.get(path.resolve('C:/work/silent'))?.state).toBe('stalled');
+  });
+
   it('ignores transcripts older than the discovery window', async () => {
     const { claudeCodeProjects, codexSessions } = await sources();
     const day = path.join(codexSessions, '2026', '08', '20');
     await writeTranscript(path.join(day, 'rollout-ancient.jsonl'), codexTurn('C:/work/zeta', true), 48 * 60 * 60_000);
 
     expect(await new AgentActivityObserver({ claudeCodeProjects, codexSessions }).collect()).toEqual([]);
+  });
+
+  it('degrades an unrecognized transcript format to no signal', async () => {
+    const { claudeCodeProjects, codexSessions } = await sources();
+    const day = path.join(codexSessions, '2026', '08', '20');
+    await writeTranscript(path.join(day, 'rollout-unknown.jsonl'), [
+      { type: 'unknown_record', payload: { foo: 'bar' } },
+      { type: 'response_item', payload: { type: 'mystery' } },
+    ]);
+
+    expect(await new AgentActivityObserver({ claudeCodeProjects, codexSessions }).collect()).toEqual([]);
+  });
+
+  it('degrades a transcript with no recognizable turn boundary to no signal', async () => {
+    const { claudeCodeProjects, codexSessions } = await sources();
+    const project = path.join(claudeCodeProjects, 'project');
+    await writeTranscript(path.join(project, 'summary-only.jsonl'), [
+      { type: 'summary', cwd: 'C:/work/zeta', leafUuid: 'u9', summary: 'recent work' },
+      { type: 'summary', cwd: 'C:/work/zeta', leafUuid: 'u8', summary: 'more recent work' },
+    ]);
+
+    expect(await new AgentActivityObserver({ claudeCodeProjects, codexSessions }).collect()).toEqual([]);
+  });
+
+  it('degrades a non-JSON transcript to no signal', async () => {
+    const { claudeCodeProjects, codexSessions } = await sources();
+    const day = path.join(codexSessions, '2026', '08', '20');
+    const filePath = path.join(day, 'rollout-garbage.jsonl');
+    await writeFile(filePath, 'this is not jsonl\nneither is this\n');
+
+    expect(await new AgentActivityObserver({ claudeCodeProjects, codexSessions }).collect()).toEqual([]);
+  });
+
+  it('keeps reading readable transcripts when a sibling is unrecognizable', async () => {
+    const { claudeCodeProjects, codexSessions } = await sources();
+    const day = path.join(codexSessions, '2026', '08', '20');
+    await writeTranscript(path.join(day, 'rollout-bad.jsonl'), [{ type: 'unknown_record', payload: {} }]);
+    await writeTranscript(path.join(day, 'rollout-good.jsonl'), codexTurn('C:/work/iota', true));
+
+    const sessions = await new AgentActivityObserver({ claudeCodeProjects, codexSessions }).collect();
+    expect(sessions).toHaveLength(1);
+    expect(path.resolve(sessions[0]!.cwd)).toBe(path.resolve('C:/work/iota'));
+  });
+
+  it('never copies message content or tool output into a session', async () => {
+    const { claudeCodeProjects, codexSessions } = await sources();
+    const day = path.join(codexSessions, '2026', '08', '20');
+    const contentMarker = 'SECRET_MESSAGE_CONTENT';
+    const outputMarker = 'SECRET_TOOL_OUTPUT';
+    await writeTranscript(path.join(day, 'rollout-private.jsonl'), [
+      codexSessionMeta('C:/work/private'),
+      codexTurnStart,
+      codexMessage(contentMarker),
+      codexFunctionOutput(outputMarker),
+      codexTurnComplete,
+    ]);
+
+    const [session] = await new AgentActivityObserver({ claudeCodeProjects, codexSessions }).collect();
+    expect(session?.state).toBe('idle');
+    const serialized = JSON.stringify(session);
+    expect(serialized).not.toContain(contentMarker);
+    expect(serialized).not.toContain(outputMarker);
+    expect(Object.keys(session!).sort()).toEqual(['agentLabel', 'cwd', 'lastActivityAt', 'lastTurnComplete', 'sessionId', 'state']);
   });
 
   it('does not treat a sibling directory sharing a name prefix as contained', () => {
@@ -102,7 +229,7 @@ describe('Agent activity observation', () => {
     const { claudeCodeProjects, codexSessions } = await sources();
     const observer = new AgentActivityObserver({ claudeCodeProjects, codexSessions });
     const session = (cwd: string): AgentSession => ({
-      sessionId: cwd, agentLabel: 'codex', cwd, sourcePath: `${cwd}.jsonl`,
+      sessionId: cwd, agentLabel: 'codex', cwd,
       state: 'idle', lastActivityAt: new Date().toISOString(), lastTurnComplete: true,
     });
 
@@ -116,7 +243,7 @@ describe('Agent activity observation', () => {
   });
 
   it('summarizes a worktree by its most active session', () => {
-    const base = { agentLabel: 'codex' as const, cwd: 'C:/work', sourcePath: 'a.jsonl', lastTurnComplete: true };
+    const base = { agentLabel: 'codex' as const, cwd: 'C:/work', lastTurnComplete: true };
     const older = { ...base, sessionId: 'older', state: 'idle' as const, lastActivityAt: '2026-08-20T10:00:00.000Z' };
     const newer = { ...base, sessionId: 'newer', state: 'working' as const, lastTurnComplete: false, lastActivityAt: '2026-08-20T12:00:00.000Z' };
 

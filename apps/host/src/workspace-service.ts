@@ -255,6 +255,10 @@ export class WorkspaceService {
   async stop(): Promise<void> {
     if (this.interval) clearInterval(this.interval);
     if (this.refreshDebounce) clearTimeout(this.refreshDebounce);
+    // A reconciliation may be in flight (start kicks one off immediately). Close
+    // the store only after it settles, or publishSnapshot would touch a closed
+    // database and take the daemon down during shutdown.
+    while (this.refreshing) await this.refreshing;
     await this.watcher?.close();
     this.store.close();
   }

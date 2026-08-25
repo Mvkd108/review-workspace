@@ -249,3 +249,25 @@ impossible and no Git operation mutates the repository.
   guess is made about its activity.
 - The three-minute stalled threshold is unchanged. It is not tuned until usage
   evidence justifies it; a boundary test locks the current behavior.
+
+## 2026-08-23 — M8: integration, accessibility, security, and release hardening
+
+- End-to-end coverage lives in `apps/host/src/integration.test.ts` (eleven HTTP
+  scenarios against real Git repositories) and negative-security coverage in
+  `apps/host/src/security.test.ts` (CORS, traversal, unapproved commands,
+  transcript leakage, unsafe data locations, request cap). Both run inside
+  `pnpm test`, so CI exercises them on Linux and Windows on every run.
+- Accessibility is enforced two ways: axe scans across key fixtures (the
+  color-contrast and layout-metric rules are disabled because jsdom cannot
+  compute them), and keyboard-flow tests. The dialog now traps Tab, closes on
+  Escape, and returns focus to the trigger.
+- `WorkspaceService.stop()` awaits any in-flight reconciliation before closing
+  the store. Found by the new suites: a background refresh could previously touch
+  a closed database during shutdown.
+- The host build uses `tsconfig.build.json` (excludes tests and test helpers)
+  and wipes `dist` first; `copy-assets.mjs` clears the web bundle before copying.
+  A packed tarball therefore contains only the CLI, its assets, and the schema
+  documents. The smoke test pins this with `pnpm pack --dry-run`.
+- The packed-install smoke runs the built CLI as the shipped artifact would be
+  run. A true tarball-install smoke waits until the `@review-workspace` packages
+  are published; the CLI/HTTP surface and pack shape are already covered.

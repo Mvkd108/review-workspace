@@ -16,14 +16,43 @@ While the project is pre-1.0, minor versions may change the schema.
 - Continuous integration on Linux and Windows covering typecheck, tests, build,
   and the context handoff check.
 - `--version` on the CLI, and expanded `--help` output.
+- Agent activity is legible in every state: `working`, `stalled`, `idle`, and a
+  distinct `no signal` are rendered as separate pills, and the activity panel
+  carries a standing note that transcripts are advisory, never affect merge
+  readiness, and that Cursor is not observed.
+- End-to-end integration suite covering a clean first run, registration,
+  archive/restore, gate-proposal approval, check execution and failure, stale
+  results after an edit, reviewed-file invalidation, SSE with disconnect and
+  recovery, an unavailable worktree, database migration plus restart, and a
+  500-file review.
+- Negative-security suite covering loopback-only CORS, static and API path
+  traversal, unapproved commands never executing, transcript leakage through
+  the snapshot API, unsafe data locations, and the request body cap.
+- Accessibility: axe scans across key fixtures and keyboard-flow tests; the
+  dialog traps Tab, closes on Escape, and returns focus to its trigger.
+- A packed-install smoke test (`pnpm smoke`, run in CI) verifying the CLI
+  surface without opening a database, the compiled daemon's HTTP surface, and a
+  clean `pnpm pack --dry-run` for the host.
 
 ### Changed
 
+- The host build excludes test files and clears stale assets, so a packed
+  tarball contains only the CLI, its assets, and the schema documents.
+
 - Published packages now expose generated declarations rather than TypeScript
   sources, and carry repository and homepage metadata.
+- `AgentSession` no longer exposes the raw transcript path (`sourcePath` was
+  removed from the public schema). Message content and tool output never entered
+  snapshots and still do not; the reader now has explicit regression coverage.
+  The schema version is `0.4.0-beta.0` because the removal is breaking.
+- An `idle` agent is described as a turn that *ended*, never as finished or
+  correct.
 
 ### Fixed
 
+- `WorkspaceService.stop()` could close the store while a background
+  reconciliation was still running, making a shutdown refresh touch a closed
+  database. It now awaits any in-flight reconciliation before closing.
 - `pnpm test` failed on a clean clone. The host imports runtime values from
   `workspace-schema`, which resolves to compiled output, so the suite could only
   pass where a previous build had left `dist/` behind. The test script now builds

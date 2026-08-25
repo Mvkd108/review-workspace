@@ -54,5 +54,8 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Smoke test the packed build
+        run: pnpm smoke
+
       - name: Check context handoff
         run: pnpm context:check:strict

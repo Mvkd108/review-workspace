@@ -29,9 +29,9 @@ malicious branch from running code by being cloned.
 **It reads agent transcript files.** Those files can contain whatever was said to
 or by an agent, including secrets a user pasted into a chat and credentials that
 appeared in tool output. Review Workspace reads only the working directory and
-turn-boundary markers, and puts neither message content nor tool output into its
-snapshots or its API. Treat any change that widens what the agent channel reads
-as security-relevant.
+turn-boundary markers, and puts neither message content, tool output, nor the raw
+transcript path into its snapshots or its API. Treat any change that widens what
+the agent channel reads or exposes as security-relevant.
 
 **It runs Git against your repositories.** Inspection is read-only and
 non-mutating, including conflict detection, which uses `merge-tree` rather than

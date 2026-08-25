@@ -6,11 +6,12 @@
 2. Record every disagreement between the reported state and reality. The two
    expected failure modes are a long tool call reported as `stalled`, and a
    transcript format change reported as `no signal` while an agent is running.
-3. Run the seven-day kill test described in `PHASE0A_KILL_TEST.md`. It is still
-   unstarted, and it now covers both channels rather than the repo channel
-   alone. Use at least ten real work units and three concurrent worktrees. The
-   beta completion and failure criteria in `LAUNCH_CONTRACT.md` govern the
-   verdict.
+3. Continue the seven-day kill test described in `PHASE0A_KILL_TEST.md`. It
+   started 2026-08-24 with day 1 recorded in `kill-test/2026-08-24.md` against
+   nineteen real worktrees; six days remain. Days 2–7 must be recorded from real
+   daily usage by the operator — an agent may maintain the log and analyze
+   failures but must never synthesize a day. The beta completion and failure
+   criteria in `LAUNCH_CONTRACT.md` govern the verdict.
 4. M5 (scalable review detail, file navigation, and diffs) is implemented: the
    five review tabs, fixed header with scrolling content, paginated and
    filterable file lists, on-demand per-file diffs with previous/next, the
@@ -30,6 +31,18 @@
 - The GitHub repository was renamed to `Mvkd108/review-workspace` on 2026-08-22,
   matching the frozen product identity. The remaining publication action is
   reserving the `@review-workspace` npm scope, which is an owner account action.
+  Once the scope is reserved and the schema/adapter packages are published, the
+  packed-install smoke should install the host tarball in a clean directory and
+  run its bin, instead of invoking the built `dist/cli.js` directly.
+- M8 (integration, accessibility, security, and release hardening) is
+  implemented: eleven end-to-end scenarios, nine negative-security tests, axe
+  scans plus keyboard-flow tests, a `pnpm smoke` step in CI, and a host build
+  that excludes tests and stale assets. `WorkspaceService.stop()` now awaits an
+  in-flight reconciliation before closing the store. The end-to-end suites run
+  inside `pnpm test`; the smoke step runs after `pnpm build` in CI.
+- Unknown GET routes fall through to the SPA shell by design (the app has no
+  client-side router yet). If a router is added, keep that fallback and make the
+  API path prefix explicit first so `/api/*` never serves the shell.
 - Cursor has no transcript to read. If its activity matters, the only observable
   surface found so far is the VS Code SQLite database, which is undocumented and
   version-fragile. Treat it as a separate spike, not a quick addition.

@@ -1,8 +1,12 @@
 # Phase 0a kill test
 
-Start date: not started
-End date: not started
+Start date: 2026-08-24
+End date: not reached
 Decision: pending
+
+The daily log lives in `kill-test/` (see `kill-test/README.md`). Recording is
+subject to a strict anti-fabrication rule: only real-use observations with their
+evidence may be logged, and a model must never synthesize a day's entry.
 
 ## Required exposure
 

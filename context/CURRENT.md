@@ -130,28 +130,40 @@ reducer spike has not run.
 - The watcher survives an unreadable path instead of taking the host down.
 - Open-source project surface: README covering both channels, a security policy
   with a threat model, contributing guide, code of conduct, changelog, issue and
-  pull request templates, and CI running typecheck, tests, build, and the strict
-  context check on Linux and Windows.
+  pull request templates, and CI running typecheck, tests, build, a packed-build
+  smoke test, and the strict context check on Linux and Windows.
 - `--version` and full `--help` on the CLI, both of which run without opening a
-  database.
+  database; the smoke test asserts this by pointing `--data-dir` at an empty
+  directory and confirming no database file appears.
+- Integration and negative-security suites (M8). End-to-end HTTP scenarios cover
+  a clean first run, registration, archive/restore, gate-proposal approval,
+  check execution and failure, stale results after an edit, reviewed-file
+  invalidation, SSE streaming with disconnect and reconnect, an unavailable
+  worktree, database migration plus restart, and a 500-file review. Negative
+  tests cover CORS loopback-only enforcement, static and API path traversal,
+  never-running unapproved commands, transcript leakage through the snapshot
+  API, unsafe data locations, and the one-megabyte request cap.
+- Accessibility and keyboard flow (M8). The web app is scanned with axe across
+  key fixtures (color-contrast and layout rules are disabled under jsdom); the
+  dialog manages focus — it traps Tab, closes on Escape, and returns focus to
+  the trigger. Keyboard-flow tests drive search, queue rows, views, detail tabs,
+  bulk-archive checkboxes, and the dialog entirely by keyboard.
+- Release hardening (M8): the host builds with `tsconfig.build.json` (test files
+  excluded) after wiping `dist`, and `copy-assets.mjs` clears the web bundle
+  before copying, so a packed tarball contains only the CLI, its assets, and the
+  schema documents — verified by `pnpm pack --dry-run` in the smoke test.
 
 ## Verification evidence
 
 - TypeScript checks pass for the schema, adapter API, host, and web app.
-- Fifty-two host tests pass, covering CLI argument forwarding, risk evidence,
+- Seventy-two host tests pass, covering CLI argument forwarding, risk evidence,
   exact gate binding, native Git inspection, clean-branch merge checks, unchanged
   gate reuse, stale invalidation, untrusted repo gate proposals, the store
   migration, the work-unit archive API including the archived listing endpoint,
   incremental reconciliation, the per-file diff endpoint with path-traversal
   refusals, reviewed markers that reset when a patch changes or a file leaves
-  the change set, and fourteen agent activity cases (open, closed,
-  and aborted Codex turns with realistic message and tool-output fixtures, open
-  and closed Claude Code turns with realistic content blocks, open turns that
-  stopped writing, the three-minute staleness boundary, discovery-window expiry,
-  unrecognized-format degradation to no signal, non-JSON transcripts, readable
-  siblings beside an unreadable one, the privacy guarantee that message content
-  and tool output never reach a session, sibling directories that share a name
-  prefix, and most-specific worktree binding).
+  the change set, fourteen agent activity cases, the eleven end-to-end
+  integration scenarios, and nine negative-security scenarios.
 - Observed live against eighteen registered worktrees: the workspace correctly
   reported the Claude Code session editing it as `working` with an open turn,
   demoted it to the lowest queue tier, and raised the matching attention item.
@@ -167,7 +179,7 @@ reducer spike has not run.
 - Strict context validation passes.
 - Windows integration-test cleanup guarantees service shutdown, retries removal
   of temporarily locked SQLite directories, and uses a 15-second timeout.
-- Sixty-four web tests pass, covering empty, healthy, blocked, working/stalled
+- Seventy-six web tests pass, covering empty, healthy, blocked, working/stalled
   agent, no-signal, archived, unavailable, 500-file, all four check-state
   fixtures, pending proposals, running checks, the 19-unit multi-repository
   dataset, plus global error, loading, queue selection, view filtering and
@@ -176,7 +188,17 @@ reducer spike has not run.
   agent state labels, the advisory and Cursor copy, the agent-privacy guarantee,
   trusted-check setup and preview, inert proposals, run-required-checks order,
   the five distinct check states, the output drawer, blocked-readiness next
-  actions, evidence-gated "Merge ready", and the fixture harness.
+  actions, evidence-gated "Merge ready", the fixture harness, axe scans with no
+  critical or serious violations, and keyboard-flow coverage of search, queue
+  rows, views, tabs, bulk selection, and dialog focus management.
+- The M8 packed-install smoke test passes: `--version`/`--help` open no database,
+  the compiled daemon serves the workspace API, the SPA shell, the JSON Schema
+  and OpenAPI documents, unknown GET routes degrade to the SPA shell, and
+  `pnpm pack --dry-run` for the host contains the CLI and its assets with no
+  test artifacts.
+- Shutdown is now race-free (M8 fix): `WorkspaceService.stop()` awaits any
+  in-flight reconciliation before closing the store, so a background refresh can
+  no longer touch a closed database during shutdown.
 
 ## Run locally
 
@@ -199,7 +221,12 @@ worktrees. Gate arguments are entered one argument per line.
   approvals, cancellation, usage reporting, phone access, or generated UI. The
   agent channel observes; it does not control.
 - Cursor activity is not observable through transcripts.
-- The seven-day kill test and the AHP reducer spike are both still outstanding.
+- The seven-day kill test started 2026-08-24; day 1 is recorded in
+  `kill-test/2026-08-24.md` (nineteen real worktrees, no incorrect merge-ready
+  claim, readiness verified against manual Git inspection, queue-first
+  demonstrated). Six days remain and require real operator usage — recording is
+  governed by an explicit anti-fabrication rule. The AHP reducer spike has no
+  definition anywhere in this repository.
 
 ## Known limitations to observe during the kill test
 

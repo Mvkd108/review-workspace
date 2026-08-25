@@ -9,10 +9,20 @@ import type { AgentActivity, AgentActivityState, AgentLabel, AgentSession } from
  *
  * This channel reads only. It never launches, steers, or cancels an agent, and a
  * transcript is treated as a report rather than an authority: Git remains the
- * source of truth for what actually changed.
+ * source of truth for what actually changed. Activity is advisory and never
+ * affects merge readiness.
+ *
+ * Privacy boundary: only the working directory and turn-boundary markers are
+ * read. Message content and tool output are never copied into sessions, so they
+ * can never reach a snapshot or the API. The transcript path is used for
+ * discovery, caching, and binding, but is not part of the public AgentSession.
  */
 
-/** A transcript written more recently than this is an agent still producing output. */
+/**
+ * A transcript written more recently than this is an agent still producing output.
+ * Do not tune this threshold without usage evidence: `stalled` is deliberately
+ * conservative so a long tool call is reported rather than missed.
+ */
 const WORKING_WINDOW_MS = 180_000;
 /** Transcripts untouched for longer than this are too old to be worth reading. */
 const DISCOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -181,6 +191,12 @@ async function discoverCodex(root: string, since: number): Promise<DiscoveredTra
   return found;
 }
 
+/**
+ * Reduces a transcript tail to the public session record. Returns undefined for
+ * transcripts the reader cannot make sense of, so a changed or unknown format
+ * degrades to no signal rather than a guess. Only the cwd and turn boundary are
+ * extracted; message content and tool output never leave this function.
+ */
 async function readSession(transcript: DiscoveredTranscript, now: number): Promise<AgentSession | undefined> {
   let tail: string;
   try {
@@ -209,7 +225,6 @@ async function readSession(transcript: DiscoveredTranscript, now: number): Promi
     sessionId: path.basename(transcript.filePath, '.jsonl'),
     agentLabel: transcript.agentLabel,
     cwd: path.resolve(cwd),
-    sourcePath: transcript.filePath,
     state: deriveState(turnComplete, transcript.modifiedAt, now),
     lastActivityAt: transcript.modifiedAt.toISOString(),
     lastTurnComplete: turnComplete,

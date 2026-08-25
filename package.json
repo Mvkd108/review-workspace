@@ -19,7 +19,8 @@
     "typecheck": "pnpm -r typecheck",
     "context:check": "node scripts/check-context.mjs",
     "context:check:strict": "node scripts/check-context.mjs --strict",
-    "benchmark:startup": "node scripts/benchmark-startup.mjs"
+    "benchmark:startup": "node scripts/benchmark-startup.mjs",
+    "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
