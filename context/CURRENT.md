@@ -102,7 +102,11 @@ reducer spike has not run.
   losing registrations, gates, runs, or reviewed state.
 - Host-owned storage is refused inside an observed worktree, both when a
   registration would enclose the data directory and when the data directory is
-  moved into an already-registered worktree.
+  moved into an already-registered worktree. Paths are canonicalised through the
+  native `realpath` before any containment or identity comparison, so a Windows
+  8.3 short alias or a symlinked path cannot make the same directory compare
+  unequal to itself. Before this, that guard could fail open and one repository
+  could take two `repositoryId` values, orphaning its approved gates.
 - Work units persist operator-controlled visibility (`active`/`archived`).
   Archive and unarchive hide or restore a registration without touching the
   worktree; bulk archive and a lightweight `GET /api/v1/work-units/archived`

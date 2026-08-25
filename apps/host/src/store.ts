@@ -2,6 +2,9 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { GateDefinition, GateRun, TaskScope, WorkUnit, WorkUnitVisibility } from '@review-workspace/schema';
+import { isWithinPath } from './paths.js';
+
+export { isWithinPath };
 
 type SqlValue = string | number | bigint | null;
 
@@ -16,17 +19,6 @@ interface Migration {
 function tableHasColumn(database: DatabaseSync, table: string, column: string): boolean {
   const columns = database.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   return columns.some((item) => item.name === column);
-}
-
-function resolved(pathname: string): string {
-  const absolute = path.resolve(pathname);
-  return process.platform === 'win32' ? absolute.toLowerCase() : absolute;
-}
-
-/** True when `candidate` is `directory` itself or lives under it. */
-export function isWithinPath(candidate: string, directory: string): boolean {
-  const relative = path.relative(resolved(directory), resolved(candidate));
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 const MIGRATIONS: ReadonlyArray<Migration> = [

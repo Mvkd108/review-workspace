@@ -2,6 +2,7 @@ import { open, readdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { AgentActivity, AgentActivityState, AgentLabel, AgentSession } from '@review-workspace/schema';
+import { isWithinPath } from './paths.js';
 
 /**
  * Observes agent-owned transcript files to answer one question the repo channel
@@ -231,10 +232,14 @@ async function readSession(transcript: DiscoveredTranscript, now: number): Promi
   };
 }
 
-/** True when `candidate` is the directory itself or lives inside it, by path segment. */
+/**
+ * True when `candidate` is the directory itself or lives inside it, by path
+ * segment. Canonicalised first so a session whose reported working directory is
+ * spelled differently from the registration — a Windows 8.3 alias, or a symlink
+ * — still binds to its worktree.
+ */
 export function isWithin(parent: string, candidate: string): boolean {
-  const relative = path.relative(path.resolve(parent), path.resolve(candidate));
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  return isWithinPath(candidate, parent);
 }
 
 const STATE_PRIORITY: readonly AgentActivityState[] = ['working', 'stalled', 'idle', 'unknown'];

@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { RepositoryAdapter, RepositoryInspection } from '@review-workspace/adapter-api';
 import type { ChangeFile, ChangeFileStatus, WorkUnit } from '@review-workspace/schema';
 import { sha256 } from './hash.js';
+import { canonicalPath } from './paths.js';
 import { runGit } from './process.js';
 
 export interface RepositoryIdentity {
@@ -178,10 +179,13 @@ export class GitCliRepositoryAdapter implements RepositoryAdapter {
   private readonly diffCache = new Map<string, string>();
 
   async resolveIdentity(inputPath: string, requestedBaseRef?: string): Promise<RepositoryIdentity> {
-    const worktreePath = path.resolve(inputPath);
-    const repositoryRoot = path.resolve(await gitText(worktreePath, ['rev-parse', '--show-toplevel']));
+    // Canonical from the start: Git reports the long form of a path, so an input
+    // spelled as a Windows 8.3 alias would otherwise identify the same
+    // repository twice and defeat the data-directory containment guard.
+    const worktreePath = canonicalPath(inputPath);
+    const repositoryRoot = canonicalPath(await gitText(worktreePath, ['rev-parse', '--show-toplevel']));
     const commonDirRaw = await gitText(worktreePath, ['rev-parse', '--git-common-dir']);
-    const commonDir = path.resolve(worktreePath, commonDirRaw);
+    const commonDir = canonicalPath(path.resolve(worktreePath, commonDirRaw));
     const branch = (await gitText(worktreePath, ['branch', '--show-current'])) || '(detached)';
     const headCommit = await gitText(worktreePath, ['rev-parse', 'HEAD']);
     const baseRef = requestedBaseRef || await this.detectBaseRef(worktreePath);

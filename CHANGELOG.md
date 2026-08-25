@@ -9,6 +9,20 @@ While the project is pre-1.0, minor versions may change the schema.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The host-data-directory containment guard could fail open on Windows.**
+  Windows exposes one directory under both an 8.3 short alias
+  (`C:\Users\RUNNER~1`) and its long form, and `path.resolve` preserves whichever
+  spelling it is given. Git reports the long form, so a worktree registered
+  through a short path compared unequal to the same directory reached the long
+  way. Two consequences: the guard that refuses to place the host database inside
+  an observed worktree answered "not contained" and allowed the registration, and
+  one repository could receive two different `repositoryId` values, orphaning its
+  approved gates. Paths are now canonicalised through the native `realpath`
+  before comparison and before identity is derived. Found by the first CI run of
+  the integration and security suites on a Windows runner.
+
 ### Added
 
 - Open-source project documentation: contributing guide, security policy with a
