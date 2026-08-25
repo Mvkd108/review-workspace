@@ -6,6 +6,7 @@ import type { RepositoryInspection } from '@review-workspace/adapter-api';
 import type { WorkUnit } from '@review-workspace/schema';
 import { GitCliRepositoryAdapter } from './git-adapter.js';
 import { sha256 } from './hash.js';
+import { canonicalPath } from './paths.js';
 import { runGit } from './process.js';
 import { WorkspaceStore } from './store.js';
 import { WorkspaceService } from './workspace-service.js';
@@ -18,7 +19,7 @@ async function git(cwd: string, ...args: string[]) {
 }
 
 async function worktrees(count: number): Promise<{ base: string; roots: string[] }> {
-  const base = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-m2-base-'));
+  const base = canonicalPath(await mkdtemp(path.join(os.tmpdir(), 'review-workspace-m2-base-')));
   temporary.push(base);
   await git(base, 'init', '-b', 'main');
   await git(base, 'config', 'user.name', 'Review Test');
@@ -27,7 +28,7 @@ async function worktrees(count: number): Promise<{ base: string; roots: string[]
   await git(base, 'add', '.');
   await git(base, 'commit', '-m', 'base');
 
-  const worktreeBase = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-m2-wts-'));
+  const worktreeBase = canonicalPath(await mkdtemp(path.join(os.tmpdir(), 'review-workspace-m2-wts-')));
   temporary.push(worktreeBase);
   const roots: string[] = [];
   for (let index = 0; index < count; index += 1) {
@@ -39,7 +40,7 @@ async function worktrees(count: number): Promise<{ base: string; roots: string[]
 }
 
 async function dataDir(): Promise<string> {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-m2-data-'));
+  const directory = canonicalPath(await mkdtemp(path.join(os.tmpdir(), 'review-workspace-m2-data-')));
   temporary.push(directory);
   return directory;
 }

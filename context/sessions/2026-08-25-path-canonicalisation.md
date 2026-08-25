@@ -70,10 +70,50 @@ Five regression tests in `paths.test.ts` cover indirect resolution, a missing
 path, containment across mixed spellings, sibling directories sharing a name
 prefix, and the platform-specific casing rule.
 
+## Second CI run: the product fixes held, the fixtures did not
+
+Failures fell from nine to eight, and the two genuine product defects — the
+containment guard and the duplicated `repositoryId` — were gone. What remained
+was the mirror image of the original problem: the host now canonicalises every
+path it stores, while fixtures built roots from `os.tmpdir()` and kept the short
+spelling, so a test comparing a stored path against its own root compared unequal
+and was asserting against a spelling the product no longer produces.
+
+Fixture roots are now canonicalised at creation. `test-helpers.ts` gained
+`temporaryRoot(prefix)`, and the two suites that build their own roots
+(`workspace-incremental`, `review-validity`) canonicalise theirs.
+
+Production never hits this: the watcher is seeded from the canonical stored path,
+so change events already carry canonical paths. Only a test passing a raw
+`os.tmpdir()` root back into `refresh()` could produce the short form.
+
+## Reproducing a short-path failure locally
+
+This class of bug is invisible on a machine whose temp path has no 8.3 alias —
+every component of `C:\Users\madha\AppData\Local\Temp` is eight characters or
+fewer, so Windows generates none, which is why three CI runs were needed to see
+it. To force the condition:
+
+```powershell
+$base = "$env:TEMP\review-workspace-shortpath-simulation"
+New-Item -ItemType Directory -Force -Path $base | Out-Null
+(New-Object -ComObject Scripting.FileSystemObject).GetFolder($base).ShortPath
+```
+
+Point `TEMP` and `TMP` at the reported short form (`...\RE2203~1`) and run the
+host suite. Without the fixture fix this reproduces seven of the eight CI
+failures exactly, including `expected 'passed' to be 'stale'` and
+`expected 'unknown' to be 'ready'`. Use this before trusting a path change on
+Windows rather than spending CI runs on it.
+
 ## Checks
 
 - Host suite: 77 tests across 12 files pass locally, up from 72.
-- Typecheck passes. Full verification and CI confirmation follow the commit.
+- The same 77 pass with `TEMP` and `TMP` pointed at an 8.3 short alias, which is
+  the CI Windows condition. Verified by reproduction: stashing the fixture fix
+  under that environment reproduces the CI failures, restoring it clears them.
+- Typecheck, full test run, build, packed smoke test, and the strict context
+  check all pass.
 
 ## Exact continuation point
 

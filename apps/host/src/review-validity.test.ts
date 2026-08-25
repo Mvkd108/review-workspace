@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { canonicalPath } from './paths.js';
 import { runGit } from './process.js';
 import { WorkspaceStore } from './store.js';
 import { WorkspaceService } from './workspace-service.js';
@@ -16,7 +17,7 @@ async function git(cwd: string, ...args: string[]) {
 
 /** A worktree with a modified, deleted, added, and untracked change. */
 async function changedWorktree(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-rv-'));
+  const root = canonicalPath(await mkdtemp(path.join(os.tmpdir(), 'review-workspace-rv-')));
   temporary.push(root);
   await git(root, 'init', '-b', 'main');
   await git(root, 'config', 'user.name', 'Review Test');
@@ -34,7 +35,7 @@ async function changedWorktree(): Promise<string> {
 }
 
 async function dataDir(): Promise<string> {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-rv-data-'));
+  const directory = canonicalPath(await mkdtemp(path.join(os.tmpdir(), 'review-workspace-rv-data-')));
   temporary.push(directory);
   return directory;
 }
@@ -60,7 +61,7 @@ afterEach(async () => {
 
 describe('Reviewed-file validity', () => {
   it('resets a reviewed marker when the file patch changes and clears markers for reverted files', async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-reset-'));
+    const root = canonicalPath(await mkdtemp(path.join(os.tmpdir(), 'review-workspace-reset-')));
     temporary.push(root);
     await git(root, 'init', '-b', 'main');
     await git(root, 'config', 'user.name', 'Review Test');

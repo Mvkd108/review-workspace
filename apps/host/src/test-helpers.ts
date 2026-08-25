@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { WorkUnit, WorkspaceSnapshot } from '@review-workspace/schema';
+import { canonicalPath } from './paths.js';
 import { runGit } from './process.js';
 import { WorkspaceStore } from './store.js';
 import { WorkspaceService } from './workspace-service.js';
@@ -21,9 +22,23 @@ export async function git(cwd: string, ...args: string[]): Promise<void> {
 }
 
 /** A repository on `main` with a base commit, switched to a fresh `feature` branch. */
+/**
+ * A temporary directory in the canonical spelling the host will use.
+ *
+ * `os.tmpdir()` reads %TEMP%, which on Windows is often an 8.3 short alias —
+ * GitHub's runners report `C:\Users\RUNNER~1\...`. The host canonicalises every
+ * path it stores, so a fixture that kept the short form would compare unequal to
+ * its own registration and the test would be asserting against a spelling the
+ * product never produces. Always create fixture roots through this.
+ */
+export async function temporaryRoot(prefix: string): Promise<string> {
+  const created = await mkdtemp(path.join(os.tmpdir(), prefix));
+  temporary.push(created);
+  return canonicalPath(created);
+}
+
 export async function repository(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-e2e-'));
-  temporary.push(root);
+  const root = await temporaryRoot('review-workspace-e2e-');
   await git(root, 'init', '-b', 'main');
   await git(root, 'config', 'user.name', 'Review Test');
   await git(root, 'config', 'user.email', 'review@example.test');
@@ -35,9 +50,7 @@ export async function repository(): Promise<string> {
 }
 
 export async function dataDirectory(): Promise<string> {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-e2e-data-'));
-  temporary.push(directory);
-  return directory;
+  return temporaryRoot('review-workspace-e2e-data-');
 }
 
 export async function startFixture(dataDir?: string): Promise<{ service: WorkspaceService; server: ReviewServer; dataDir: string }> {
