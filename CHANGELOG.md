@@ -7,7 +7,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 While the project is pre-1.0, minor versions may change the schema.
 
-## [Unreleased]
+## [0.4.0-beta.0] — 2026-08-25
+
+First public release. This is a **beta**: the software is used daily against
+real worktrees and every automated check passes on Linux and Windows, but the
+seven-day kill test defined in `context/LAUNCH_CONTRACT.md` is still running —
+day 1 of 7 was recorded on 2026-08-24. Beta completion is not claimed, and the
+managed-agent work the kill test gates has not begun.
+
+All published package versions now match `WORKSPACE_SCHEMA_VERSION`, and a
+contract test enforces that, so the version a consumer pins always describes the
+schema it receives.
 
 ### Fixed
 

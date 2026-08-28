@@ -1,18 +1,39 @@
 {
   "name": "@review-workspace/host",
-  "version": "0.1.0",
+  "version": "0.4.0-beta.0",
   "description": "Local daemon and CLI for Review Workspace",
   "license": "Apache-2.0",
-  "repository": { "type": "git", "url": "git+https://github.com/Mvkd108/review-workspace.git", "directory": "apps/host" },
-  "bugs": { "url": "https://github.com/Mvkd108/review-workspace/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mvkd108/review-workspace.git",
+    "directory": "apps/host"
+  },
+  "bugs": {
+    "url": "https://github.com/Mvkd108/review-workspace/issues"
+  },
   "homepage": "https://github.com/Mvkd108/review-workspace#readme",
-  "keywords": ["code-review", "coding-agent", "git", "worktree", "codex", "claude-code"],
-  "engines": { "node": ">=24" },
+  "keywords": [
+    "code-review",
+    "coding-agent",
+    "git",
+    "worktree",
+    "codex",
+    "claude-code"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
   "type": "module",
-  "bin": { "review-workspace": "dist/cli.js" },
+  "bin": {
+    "review-workspace": "dist/cli.js"
+  },
   "main": "dist/cli.js",
-  "files": ["dist"],
-  "publishConfig": { "access": "public" },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
     "dev": "tsx watch src/cli.ts --data-dir ../../.review-workspace",

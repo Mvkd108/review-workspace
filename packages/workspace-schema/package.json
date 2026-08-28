@@ -1,18 +1,39 @@
 {
   "name": "@review-workspace/schema",
-  "version": "0.2.0",
+  "version": "0.4.0-beta.0",
   "description": "Public schema for coding-agent review workspaces",
   "license": "Apache-2.0",
-  "repository": { "type": "git", "url": "git+https://github.com/Mvkd108/review-workspace.git", "directory": "packages/workspace-schema" },
-  "bugs": { "url": "https://github.com/Mvkd108/review-workspace/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mvkd108/review-workspace.git",
+    "directory": "packages/workspace-schema"
+  },
+  "bugs": {
+    "url": "https://github.com/Mvkd108/review-workspace/issues"
+  },
   "homepage": "https://github.com/Mvkd108/review-workspace#readme",
-  "keywords": ["code-review", "coding-agent", "git", "worktree", "json-schema", "openapi"],
+  "keywords": [
+    "code-review",
+    "coding-agent",
+    "git",
+    "worktree",
+    "json-schema",
+    "openapi"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "types": "src/index.ts",
-  "files": ["dist", "src", "schema", "openapi.json"],
+  "files": [
+    "dist",
+    "src",
+    "schema",
+    "openapi.json"
+  ],
   "exports": {
-    ".": { "types": "./src/index.ts", "import": "./dist/index.js" },
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    },
     "./workspace.schema.json": "./schema/workspace.schema.json",
     "./openapi.json": "./openapi.json"
   },
@@ -21,7 +42,10 @@
     "access": "public",
     "types": "dist/index.d.ts",
     "exports": {
-      ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
       "./workspace.schema.json": "./schema/workspace.schema.json",
       "./openapi.json": "./openapi.json"
     }

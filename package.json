@@ -1,14 +1,21 @@
 {
   "name": "review-workspace-monorepo",
-  "version": "0.1.0",
+  "version": "0.4.0-beta.0",
   "private": true,
   "description": "A local-first review workspace for coding-agent worktrees",
   "license": "Apache-2.0",
-  "repository": { "type": "git", "url": "git+https://github.com/Mvkd108/review-workspace.git" },
-  "bugs": { "url": "https://github.com/Mvkd108/review-workspace/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mvkd108/review-workspace.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Mvkd108/review-workspace/issues"
+  },
   "homepage": "https://github.com/Mvkd108/review-workspace#readme",
   "packageManager": "pnpm@11.20.0",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "pnpm --filter @review-workspace/schema build && pnpm --filter @review-workspace/adapter-api build && pnpm --filter @review-workspace/web build && pnpm --filter @review-workspace/host build",
     "dev": "pnpm --parallel --filter @review-workspace/web --filter @review-workspace/host dev",

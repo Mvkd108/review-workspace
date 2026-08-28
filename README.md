@@ -71,14 +71,22 @@ linter, your build.
 ## Install and run
 
 ```bash
-pnpm install
-pnpm build
-pnpm start -- --data-dir .review-workspace
+npx @review-workspace/host@beta
 ```
+
+Nothing is installed permanently and no configuration is needed. Review state and
+approved checks are stored in your OS application-data directory, deliberately
+outside every observed worktree.
 
 Open `http://127.0.0.1:4317`, choose **Observe worktree**, and point it at any
 existing Git worktree. Registration is the only manual step — after that, edits
 show up on their own, within about 350ms of a file settling.
+
+To work on Review Workspace itself, build from source instead:
+
+```bash
+pnpm install && pnpm build && pnpm start
+```
 
 ```
 review-workspace [--data-dir PATH] [--port PORT] [--open] [--version]
@@ -98,7 +106,19 @@ needs pairing, lockout, and device revocation, and none of that exists yet.
 
 ## Project status
 
-Working and used daily, but pre-1.0 — the schema may still change.
+**Beta — `0.4.0-beta.0`.** Used daily against real worktrees, with integration,
+security, accessibility, and packaging suites green on Linux and Windows.
+
+Pre-1.0, so the schema may still change. Two things are worth knowing before you
+rely on it:
+
+- The seven-day kill test that governs beta completion is **still running** —
+  one day recorded so far. Until it finishes, "does this hold up in daily use"
+  is an open question rather than a settled one, and the criteria it must meet
+  are written down in [`context/LAUNCH_CONTRACT.md`](context/LAUNCH_CONTRACT.md).
+- `stalled` uses a fixed three-minute threshold of transcript silence, and
+  cannot yet distinguish an interrupted agent from one inside a long tool call.
+  Expect the occasional false positive there.
 
 The repo channel and the read-only agent channel are implemented. Managed agent
 sessions, steering, approvals, cancellation, phone access, and generated UI are
